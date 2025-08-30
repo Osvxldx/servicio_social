@@ -71,13 +71,22 @@ class WaterManagementApp:
         """Muestra la ventana de login"""
         try:
             login_window = LoginWindow()
+            
+            # Conectar la señal ANTES de mostrar la ventana
             login_window.login_successful.connect(self.show_main_window)
             
-            if login_window.exec_() != LoginWindow.Accepted:
-                # El usuario canceló o cerró el login
+            # Mostrar la ventana de login y esperar resultado
+            result = login_window.exec_()
+            
+            if result == LoginWindow.Accepted:
+                print("Login exitoso, mostrando ventana principal...")
+                # La ventana principal se mostrará a través de la señal
+            else:
+                print("Login cancelado")
                 self.app.quit()
                 
         except Exception as e:
+            print(f"Error en login: {str(e)}")
             QMessageBox.critical(None, "Error", 
                                f"Error al inicializar el sistema de login:\\n{str(e)}")
             self.app.quit()
@@ -85,13 +94,19 @@ class WaterManagementApp:
     def show_main_window(self):
         """Muestra la ventana principal"""
         try:
+            print("Inicializando ventana principal...")
             self.main_window = MainWindow()
             self.main_window.show()
             
             # Centrar la ventana en la pantalla
             self.center_window(self.main_window)
             
+            print("Ventana principal mostrada exitosamente")
+            
         except Exception as e:
+            print(f"Error al mostrar ventana principal: {str(e)}")
+            import traceback
+            traceback.print_exc()
             QMessageBox.critical(None, "Error", 
                                f"Error al inicializar la ventana principal:\\n{str(e)}")
             self.app.quit()
