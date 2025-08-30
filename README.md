@@ -1,201 +1,206 @@
-# Sistema de Gestión de Pago de Agua
+# 💧 Sistema de Gestión de Pago de Agua
 
-Una aplicación de escritorio desarrollada con Electron, SQLite y TailwindCSS para la gestión de pagos de agua de clientes.
+Un sistema de escritorio desarrollado en Python con PyQt5 para gestionar pagos de agua municipal de manera eficiente y accesible.
 
-## 🚀 Características
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![PyQt5](https://img.shields.io/badge/PyQt5-5.15+-green.svg)
+![SQLite](https://img.shields.io/badge/Database-SQLite-orange.svg)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-- **Login seguro**: Acceso mediante PIN numérico (por defecto: 1234)
-- **Dashboard interactivo**: Vista general con estadísticas y filtros
-- **Gestión de clientes**: Agregar, editar y consultar información completa
-- **Búsqueda en tiempo real**: Por nombre, ID o dirección
-- **Historial de pagos**: Registro completo que nunca se elimina
-- **Calendario**: Consultas por fechas específicas
-- **Indicadores de consumo**: Seguimiento de exceso de agua
-- **Interfaz moderna**: Diseño limpio con animaciones suaves
-- **Funciona offline**: No requiere conexión a internet
+## 🌟 Características Principales
 
-## 📋 Requisitos del Sistema
+- ✅ **Login seguro** con PIN personalizable
+- 👥 **Gestión completa de clientes** (CRUD)
+- 💰 **Registro y seguimiento de pagos**
+- 💧 **Control de consumo de agua**
+- 📊 **Dashboard con estadísticas en tiempo real**
+- 📅 **Calendario de consulta de pagos**
+- 🔍 **Búsqueda y filtrado avanzado**
+- 🎨 **Interfaz moderna y responsive**
+- 🗄️ **Base de datos local SQLite**
+- 🚀 **Optimizado para equipos de bajos recursos**
 
-- Windows 10 o superior
-- 4 GB de RAM mínimo
-- 500 MB de espacio en disco
+## 📸 Capturas de Pantalla
 
-## 🛠️ Instalación para Desarrollo
+### Login
+![Login](docs/screenshots/login.png)
 
-### 1. Instalar Node.js
-Descarga e instala Node.js desde [nodejs.org](https://nodejs.org/) (versión 16 o superior).
+### Dashboard Principal
+![Dashboard](docs/screenshots/dashboard.png)
 
-### 2. Clonar o descargar el proyecto
+### Gestión de Clientes
+![Clientes](docs/screenshots/clientes.png)
+
+## 🚀 Instalación Rápida
+
+### 1. Clonar el Repositorio
 ```bash
-# Si tienes git instalado
-git clone <url-del-repositorio>
-
-# O simplemente descarga y extrae los archivos del proyecto
+git clone https://github.com/Osvxldx/servicio_social.git
+cd servicio_social
 ```
 
-### 3. Instalar dependencias
-Abre una terminal en la carpeta del proyecto y ejecuta:
+### 2. Crear Entorno Virtual
 ```bash
-npm install
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# macOS/Linux
+source .venv/bin/activate
 ```
 
-### 4. Ejecutar en modo desarrollo
+### 3. Instalar Dependencias
 ```bash
-npm run dev
+pip install -r requirements.txt
 ```
 
-## 📦 Crear Ejecutable para Windows
-
-### 1. Instalar dependencias (si no lo has hecho)
+### 4. Ejecutar la Aplicación
 ```bash
-npm install
+python main.py
 ```
 
-### 2. Compilar la aplicación
-```bash
-npm run build:win
-```
+**PIN por defecto:** `1234`
 
-El ejecutable se generará en la carpeta `dist/` con el nombre `Sistema de Agua Setup.exe`.
+## 📖 Documentación Completa
 
-### 3. Instalar la aplicación
-- Ejecuta el archivo `Sistema de Agua Setup.exe`
-- Sigue las instrucciones del instalador
-- La aplicación se instalará en `Archivos de programa`
-- Se creará un acceso directo en el escritorio
+Para instrucciones detalladas de instalación, configuración y uso, consulte:
+- 📋 [**Manual de Instalación Completo**](MANUAL_INSTALACION.md)
 
-## 🔧 Configuración Inicial
-
-### PIN de Administrador
-- **PIN por defecto**: `1234`
-- Para cambiar el PIN, modifica la base de datos SQLite en `data/agua.db`
-- O implementa la funcionalidad de cambio de PIN en la página de ajustes
-
-### Base de Datos
-- La base de datos SQLite se crea automáticamente en `data/agua.db`
-- Incluye las siguientes tablas:
-  - `admin`: Información del administrador
-  - `clients`: Datos de los clientes
-  - `payments`: Historial de pagos
-  - `consumption`: Registro de consumo de agua
-
-## 📖 Guía de Uso
-
-### 1. Inicio de Sesión
-- Ejecuta la aplicación
-- Ingresa el PIN: `1234`
-- Haz clic en "Ingresar"
-
-### 2. Dashboard Principal
-- **Estadísticas**: Total de clientes, pagados, con deuda, exceso de consumo
-- **Filtros**: Todos, Al corriente, Con deuda, Exceso consumo
-- **Vistas**: Tabla o gráficas
-- **Tabla de clientes**: Lista completa con estado de pagos
-
-### 3. Gestión de Clientes
-- **Agregar cliente**: Botón "Agregar Cliente"
-- **Buscar**: Escribe en tiempo real por nombre, ID o dirección
-- **Ver detalles**: Clic en el ícono de ojo
-- **Editar**: Clic en el ícono de lápiz
-- **Historial**: Ver todos los pagos del cliente
-
-### 4. Calendario
-- **Seleccionar fecha**: Usa el selector de fecha
-- **Botón "Hoy"**: Volver a la fecha actual
-- **Estadísticas diarias**: Pagos del día y total recaudado
-- **Lista de pagos**: Todos los pagos de la fecha seleccionada
-
-### 5. Navegación
-- **Menú lateral**: Dashboard, Clientes, Calendario, Ajustes
-- **Responsive**: Se adapta a diferentes tamaños de pantalla
-- **Animaciones**: Transiciones suaves entre páginas
-
-## 🗂️ Estructura del Proyecto
+## 🏗️ Arquitectura del Proyecto
 
 ```
-agua-dashboard/
-├── src/
-│   ├── main.js                 # Proceso principal de Electron
-│   ├── database/
-│   │   └── db.js              # Manejo de base de datos SQLite
-│   └── renderer/
-│       ├── index.html         # Interfaz principal
-│       └── js/
-│           ├── app.js         # Lógica principal de la aplicación
-│           ├── clients.js     # Gestión de clientes
-│           └── calendar.js    # Funcionalidad del calendario
-├── data/                      # Base de datos (se crea automáticamente)
-├── assets/                    # Iconos y recursos
-├── package.json              # Configuración del proyecto
-├── tailwind.config.js        # Configuración de TailwindCSS
-└── README.md                 # Este archivo
+servicio_social/
+├── 🚀 main.py                     # Punto de entrada principal
+├── 📁 database/
+│   ├── database_manager.py        # Gestión de base de datos SQLite
+│   └── agua_system.db             # Base de datos (auto-generada)
+├── 📁 ui/
+│   ├── login_window.py            # Ventana de autenticación
+│   ├── main_window.py             # Interfaz principal
+│   └── client_dialogs.py          # Diálogos de gestión
+├── 📁 models/
+│   └── data_models.py             # Modelos de datos
+├── 📁 controllers/
+│   └── app_controller.py          # Lógica de negocio
+├── 📁 styles/
+│   └── app_styles.py              # Estilos CSS personalizados
+├── 📁 utils/
+│   └── helpers.py                 # Utilidades y herramientas
+└── 📋 requirements.txt            # Dependencias del proyecto
 ```
 
-## 🔍 Funcionalidades Detalladas
+## 🔧 Requisitos del Sistema
 
-### Estados de Pago
-- **✅ Pagado**: Cliente al corriente
-- **❌ Pendiente**: Cliente con deuda
-- **💧 Exceso**: Cliente con consumo excesivo de agua
+| Componente | Mínimo | Recomendado |
+|------------|--------|-------------|
+| **SO** | Windows 7+ / macOS 10.12+ / Ubuntu 16.04+ | Windows 10+ / macOS 12+ / Ubuntu 20.04+ |
+| **Python** | 3.8+ | 3.10+ |
+| **RAM** | 2 GB | 4 GB |
+| **Almacenamiento** | 500 MB | 1 GB |
+| **Resolución** | 1024x768 | 1920x1080 |
 
-### Búsqueda Inteligente
-- Busca en tiempo real mientras escribes
-- Funciona con nombres parciales
-- Busca por ID numérico
-- Busca por dirección completa o parcial
+## 🎯 Funcionalidades por Módulo
 
-### Historial Completo
-- Todos los pagos se guardan permanentemente
-- Fechas exactas de cada transacción
-- Montos y estados de pago
-- Notas de consumo excesivo
+### 🔐 Sistema de Autenticación
+- Login con PIN numérico
+- Cambio de PIN desde configuración
+- Validación de seguridad
 
-## 🚨 Solución de Problemas
+### 👥 Gestión de Clientes
+- Agregar clientes con ID autogenerado
+- Editar información del cliente
+- Eliminar clientes (sin pagos asociados)
+- Búsqueda en tiempo real
+- Estados: Activo/Inactivo
 
-### La aplicación no inicia
-- Verifica que Node.js esté instalado
-- Ejecuta `npm install` nuevamente
-- Revisa que no haya procesos de Electron ejecutándose
+### 💰 Gestión de Pagos
+- Registro de pagos con fecha automática
+- Estados: Pagado/Pendiente
+- Historial completo por cliente
+- Notas adicionales
 
-### Error de base de datos
-- La carpeta `data/` debe tener permisos de escritura
-- Si hay corrupción, elimina `data/agua.db` (se recreará automáticamente)
+### 💧 Control de Consumo
+- Registro de consumo normal/exceso
+- Seguimiento de desperdicio de agua
+- Notas descriptivas
+- Historial por cliente
 
-### PIN incorrecto
-- El PIN por defecto es `1234`
-- Verifica que no tengas Bloq Num activado
-- Reinicia la aplicación si persiste el problema
+### 📊 Dashboard y Reportes
+- Estadísticas en tiempo real
+- Filtros avanzados
+- Vista de calendario
+- Indicadores visuales con iconos
 
-### Problemas de rendimiento
-- Cierra otras aplicaciones pesadas
-- La aplicación funciona mejor con al menos 4GB de RAM
-- Considera limpiar el historial si tienes miles de registros
+## 🔌 Tecnologías Utilizadas
 
-## 📞 Soporte
+| Tecnología | Versión | Propósito |
+|------------|---------|-----------|
+| **Python** | 3.8+ | Lenguaje principal |
+| **PyQt5** | 5.15+ | Interfaz gráfica |
+| **SQLite** | 3.x | Base de datos local |
+| **Matplotlib** | 3.7+ | Gráficos y visualizaciones |
 
-Para reportar problemas o solicitar nuevas funcionalidades:
-1. Describe el problema detalladamente
-2. Incluye capturas de pantalla si es posible
-3. Menciona la versión de Windows que usas
+## 🤝 Contribuir
 
-## 📝 Notas de Desarrollo
+¡Las contribuciones son bienvenidas! Para contribuir:
 
-### Tecnologías Utilizadas
-- **Electron**: Framework para aplicaciones de escritorio
-- **SQLite**: Base de datos local ligera
-- **TailwindCSS**: Framework de CSS para diseño
-- **Chart.js**: Librería para gráficas
-- **Node.js**: Entorno de ejecución
+1. Fork el proyecto
+2. Crea tu rama de característica (`git checkout -b feature/AmazingFeature`)
+3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
+4. Push a la rama (`git push origin feature/AmazingFeature`)
+5. Abre un Pull Request
 
-### Próximas Mejoras
-- Exportar reportes a PDF/Excel
-- Backup automático de la base de datos
-- Configuración de tarifas personalizables
-- Notificaciones de pagos vencidos
-- Modo oscuro para la interfaz
+### 📋 Guías de Contribución
+- Seguir las convenciones de código Python (PEP 8)
+- Documentar nuevas funcionalidades
+- Incluir pruebas cuando sea posible
+- Actualizar documentación relevante
+
+## 🐛 Reportar Problemas
+
+Si encuentras un bug o tienes una sugerencia:
+
+1. Verifica que no exista un issue similar
+2. Abre un [nuevo issue](https://github.com/Osvxldx/servicio_social/issues)
+3. Incluye detalles del problema:
+   - SO y versión de Python
+   - Pasos para reproducir
+   - Capturas de pantalla si aplica
+
+## 📋 Roadmap
+
+### Versión Actual (v1.0) ✅
+- [x] Sistema base de gestión
+- [x] CRUD de clientes y pagos
+- [x] Dashboard con estadísticas
+- [x] Interfaz PyQt5 completa
+
+### Próximas Versiones 🚧
+- [ ] Gráficos avanzados con Matplotlib
+- [ ] Exportación a PDF/Excel
+- [ ] Sistema de respaldos
+- [ ] Notificaciones automáticas
+- [ ] API REST opcional
+- [ ] Versión web complementaria
+
+## 📄 Licencia
+
+Este proyecto está licenciado bajo la Licencia MIT. Ver el archivo [LICENSE](LICENSE) para más detalles.
+
+## 👨‍💻 Autor
+
+**Osvaldo** - *Desarrollo Principal* - [@Osvxldx](https://github.com/Osvxldx)
+
+## 🙏 Agradecimientos
+
+- Inspirado en las necesidades reales de gestión municipal
+- Diseñado para ser accesible en equipos de bajos recursos
+- Interfaz optimizada para administradores únicos
 
 ---
 
-**Versión**: 1.0.0  
-**Desarrollado para**: Sistema de Gestión de Agua  
-**Compatibilidad**: Windows 10/11
+**💧 Sistema de Gestión de Agua - Desarrollado con ❤️ para la gestión municipal eficiente**
+
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?logo=github)](https://github.com/Osvxldx/servicio_social)
+[![Documentation](https://img.shields.io/badge/Docs-Manual-blue?logo=gitbook)](MANUAL_INSTALACION.md)
