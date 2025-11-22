@@ -1,123 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Generador de recibos de pago para el sistema de agua potable
+Módulo de generación de recibos PDF - Diseño Profesional y Limpio
 """
 
-import os
-from datetime import datetime
-from typing import Dict, Optional
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, mm
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+from reportlab.lib.units import inch, mm
+from datetime import datetime
+import os
 from database import get_db_manager
+from typing import Dict, Optional, List
 
 class ReceiptGenerator:
     def __init__(self):
-        self.styles = getSampleStyleSheet()
-        self.create_custom_styles()
-        
         # Configurar directorios
         self.receipts_dir = "recibos"
         self.ensure_directories()
-    
-    def create_custom_styles(self):
-        """Crea estilos personalizados mejorados para el recibo"""
-        # Estilo para el título principal - más prominente
-        self.title_style = ParagraphStyle(
-            'ProfessionalTitle',
-            parent=self.styles['Heading1'],
-            fontSize=20,
-            spaceAfter=8,
-            spaceBefore=8,
-            alignment=TA_CENTER,
-            textColor=colors.Color(0.12, 0.23, 0.54),  # Azul profesional
-            fontName='Helvetica-Bold'
-        )
         
-        # Estilo para subtítulos - más elegante
-        self.subtitle_style = ParagraphStyle(
-            'ProfessionalSubtitle',
-            parent=self.styles['Heading2'],
-            fontSize=14,
-            spaceAfter=12,
-            spaceBefore=6,
-            alignment=TA_CENTER,
-            textColor=colors.Color(0.2, 0.4, 0.8),  # Azul claro
-            fontName='Helvetica-Bold'
-        )
+        # Colores Corporativos
+        self.primary_color = colors.Color(0.12, 0.23, 0.54) # Azul oscuro
+        self.accent_color = colors.Color(0.2, 0.6, 1.0)     # Azul claro
+        self.text_color = colors.Color(0.2, 0.2, 0.2)       # Gris oscuro
+        self.red_color = colors.Color(0.8, 0.0, 0.0)        # Rojo para folios/notas
         
-        # Estilo para información de la empresa
-        self.company_style = ParagraphStyle(
-            'CompanyInfo',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            spaceAfter=4,
-            alignment=TA_CENTER,
-            textColor=colors.Color(0.2, 0.2, 0.2),
-            fontName='Helvetica'
-        )
-        
-        # Estilo para información del usuario - más profesional
-        self.user_info_style = ParagraphStyle(
-            'ProfessionalUserInfo',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            spaceAfter=6,
-            spaceBefore=2,
-            alignment=TA_LEFT,
-            textColor=colors.Color(0.1, 0.1, 0.1),
-            fontName='Helvetica'
-        )
-        
-        # Estilo para títulos de sección
-        self.section_title_style = ParagraphStyle(
-            'SectionTitle',
-            parent=self.styles['Normal'],
-            fontSize=12,
-            spaceAfter=8,
-            spaceBefore=12,
-            alignment=TA_LEFT,
-            textColor=colors.Color(0.12, 0.23, 0.54),
-            fontName='Helvetica-Bold'
-        )
-        
-        # Estilo para totales - más destacado
-        self.total_style = ParagraphStyle(
-            'ProfessionalTotal',
-            parent=self.styles['Normal'],
-            fontSize=14,
-            spaceAfter=8,
-            spaceBefore=8,
-            alignment=TA_RIGHT,
-            textColor=colors.Color(0.0, 0.5, 0.0),  # Verde profesional
-            fontName='Helvetica-Bold'
-        )
-        
-        # Estilo para el pie de página mejorado
-        self.footer_style = ParagraphStyle(
-            'ProfessionalFooter',
-            parent=self.styles['Normal'],
-            fontSize=9,
-            alignment=TA_CENTER,
-            textColor=colors.Color(0.4, 0.4, 0.4),
-            fontName='Helvetica-Oblique'
-        )
-        
-        # Estilo para números de recibo
-        self.receipt_number_style = ParagraphStyle(
-            'ReceiptNumber',
-            parent=self.styles['Normal'],
-            fontSize=10,
-            alignment=TA_RIGHT,
-            textColor=colors.Color(0.6, 0.0, 0.0),  # Rojo oscuro
-            fontName='Helvetica-Bold'
-        )
-    
     def ensure_directories(self):
         """Asegura que existan los directorios necesarios"""
         if not os.path.exists(self.receipts_dir):
@@ -125,13 +32,7 @@ class ReceiptGenerator:
     
     def generate_receipt(self, pago_id: int) -> Optional[str]:
         """
-        Genera un recibo de pago en PDF
-        
-        Args:
-            pago_id: ID del pago para generar el recibo
-            
-        Returns:
-            str: Ruta del archivo PDF generado, None si hay error
+        Genera un recibo de pago en PDF con dos copias (Usuario y Comité)
         """
         try:
             # Obtener datos del pago
@@ -144,415 +45,282 @@ class ReceiptGenerator:
             
             # Generar nombre del archivo
             fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"recibo_{pago_data['numero']}_{fecha}.pdf"
+            filename = f"recibo_{pago_data.get('id', 'sin_id')}_{fecha}.pdf"
             filepath = os.path.join(self.receipts_dir, filename)
             
-            # Crear el documento PDF
-            doc = SimpleDocTemplate(
-                filepath,
-                pagesize=letter,
-                rightMargin=inch,
-                leftMargin=inch,
-                topMargin=inch,
-                bottomMargin=inch
-            )
+            # Crear el canvas
+            c = canvas.Canvas(filepath, pagesize=letter)
+            width, height = letter
             
-            # Construir el contenido del recibo
-            story = []
-            story.extend(self.build_header(pago_data))
-            story.extend(self.build_user_info(pago_data))
-            story.extend(self.build_payment_details(pago_data))
-            story.extend(self.build_totals(pago_data))
-            story.extend(self.build_footer(pago_data))
+            # Altura de medio recibo (mitad de la página)
+            half_height = height / 2
             
-            # Generar el PDF
-            doc.build(story)
+            # --- RECIBO USUARIO (Superior) ---
+            self.draw_receipt(c, pago_data, height, "ORIGINAL - USUARIO")
             
+            # --- LÍNEA DE CORTE ---
+            c.setDash(4, 4)
+            c.setStrokeColor(colors.gray)
+            c.setLineWidth(0.5)
+            c.line(10*mm, half_height, width - 10*mm, half_height)
+            c.drawString(width/2 - 10*mm, half_height + 2*mm, "✂ Cortar aquí")
+            c.setDash(1, 0) # Reset dash
+            
+            # --- RECIBO COMITÉ (Inferior) ---
+            self.draw_receipt(c, pago_data, half_height, "COPIA - COMITÉ")
+            
+            c.save()
             return filepath
             
         except Exception as e:
             print(f"Error al generar recibo: {e}")
+            import traceback
+            traceback.print_exc()
             return None
-    
-    def build_header(self, pago_data: Dict) -> list:
-        """Construye el encabezado profesional del recibo"""
-        elements = []
+
+    def draw_receipt(self, c: canvas.Canvas, data: Dict, start_y: float, copy_type: str):
+        """
+        Dibuja un recibo individual con diseño limpio y profesional.
+        start_y: Coordenada Y superior donde comienza este recibo.
+        """
+        # Márgenes
+        left_margin = 15 * mm
+        right_margin = letter[0] - 15 * mm
+        width = letter[0]
+        content_width = width - 30*mm
         
-        # Crear tabla para header con logo y información de empresa
-        header_data = []
+        # Coordenada Y actual (empezamos un poco más abajo del tope)
+        current_y = start_y - 10 * mm
         
-        # Intentar cargar el logo más grande y visible
+        # --- ENCABEZADO ---
+        
+        # Logo (Izquierda) - MÁS ANCHO
         logo_path = "logo.jpg"
-        logo_cell = ""
+        logo_width = 50 * mm # Aumentado ancho
+        logo_height = 35 * mm # Altura mantenida/ajustada
         if os.path.exists(logo_path):
             try:
-                logo = Image(logo_path, width=80, height=80)
-                logo_cell = logo
+                # Ajustamos la posición Y para que el logo grande no se salga
+                c.drawImage(logo_path, left_margin, current_y - logo_height + 5*mm, width=logo_width, height=logo_height, mask='auto')
             except:
-                logo_cell = Paragraph("🏢<br/>LOGO", self.company_style)
-        else:
-            logo_cell = Paragraph("💧<br/>AGUA<br/>POTABLE", self.company_style)
+                pass
         
-        # Información de la empresa
-        company_info = [
-            Paragraph("<b>COMITÉ DE AGUA POTABLE</b>", self.title_style),
-            Paragraph("Sistema de Gestión Profesional", self.company_style),
-            Paragraph("📍 Dirección del Comité", self.company_style),
-            Paragraph("📞 Teléfono de Contacto", self.company_style),
-            Paragraph("📧 correo@comiteagua.com", self.company_style)
-        ]
+        # Título Principal (Centro)
+        center_x = width / 2
         
-        # Información del recibo
-        fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
-        recibo_info = [
-            Paragraph(f"<b>RECIBO DE PAGO</b>", self.subtitle_style),
-            Paragraph(f"N° Recibo: {pago_data.get('id', 'N/A')}", self.receipt_number_style),
-            Paragraph(f"Fecha: {fecha_actual}", self.receipt_number_style),
-            Paragraph(f"Usuario: {pago_data.get('numero', 'N/A')}", self.receipt_number_style)
-        ]
+        c.setFillColor(self.primary_color)
+        c.setFont("Helvetica-Bold", 14)
+        c.drawCentredString(center_x, current_y - 5*mm, "COMITÉ DE AGUA POTABLE Y ALCANTARILLADO")
         
-        # Crear la tabla del header
-        header_table_data = [
-            [logo_cell, company_info[0], recibo_info[0]],
-            ["", company_info[1], recibo_info[1]],
-            ["", company_info[2], recibo_info[2]],
-            ["", company_info[3], recibo_info[3]],
-            ["", company_info[4], recibo_info[4]]
-        ]
+        c.setFont("Helvetica-Bold", 18)
+        c.setFillColor(self.accent_color)
+        c.drawCentredString(center_x, current_y - 12*mm, "SAN ANTONIO")
         
-        header_table = Table(header_table_data, colWidths=[1.5*inch, 3*inch, 2*inch])
-        header_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
-            ('ALIGN', (1, 0), (1, -1), 'CENTER'),
-            ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('LINEBELOW', (0, 4), (-1, 4), 2, colors.Color(0.12, 0.23, 0.54)),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ]))
+        c.setFont("Helvetica-Oblique", 9)
+        c.setFillColor(self.primary_color)
+        c.drawCentredString(center_x, current_y - 17*mm, "\"Cuidar el agua es tarea de todos\"")
         
-        elements.append(header_table)
-        elements.append(Spacer(1, 20))
+        # Datos del Comité (Debajo del título)
+        c.setFillColor(self.text_color)
+        c.setFont("Helvetica", 8)
+        c.drawCentredString(center_x, current_y - 21*mm, "BARRIO DE SAN ANTONIO, TECAMACHALCO, PUEBLA")
         
-        return elements
-    
-    def build_user_info(self, pago_data: Dict) -> list:
-        """Construye la información del usuario de forma profesional"""
-        elements = []
+        # Fecha y Folio (Esquina Derecha Superior)
+        box_y = current_y - 10*mm
         
-        # Título de sección
-        section_title = Paragraph("INFORMACIÓN DEL CLIENTE", self.section_title_style)
-        elements.append(section_title)
+        c.setFont("Helvetica-Bold", 10)
+        c.setFillColor(self.text_color)
+        c.drawRightString(right_margin - 25*mm, box_y, "FOLIO:")
+        c.drawRightString(right_margin - 25*mm, box_y - 5*mm, "FECHA:")
         
-        # Información del usuario en formato de tabla profesional
-        fecha_pago = datetime.strptime(pago_data['fecha_pago'], '%Y-%m-%d %H:%M:%S')
-        fecha_str = fecha_pago.strftime('%d de %B de %Y - %H:%M')
+        c.setFillColor(self.red_color)
+        c.drawRightString(right_margin, box_y, str(data.get('id', '')))
         
-        # Crear tabla de información del usuario
-        user_info_data = [
-            ['👤 Nombre del Cliente:', pago_data['nombre']],
-            ['🏠 N° de Usuario:', str(pago_data['numero'])],
-            ['📍 Dirección:', pago_data['direccion'] or 'No especificada'],
-            ['📅 Fecha de Pago:', fecha_str],
-            ['💳 Estado:', 'ACTIVO' if pago_data.get('estado') == 'activo' else 'CANCELADO']
-        ]
+        fecha_actual = datetime.now().strftime("%d/%m/%Y")
+        c.setFillColor(self.text_color)
+        c.setFont("Helvetica", 10)
+        c.drawRightString(right_margin, box_y - 5*mm, fecha_actual)
         
-        # Crear tabla profesional para información del usuario
-        user_table = Table(user_info_data, colWidths=[2*inch, 4*inch])
-        user_table.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 11),
-            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 8),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('LINEBELOW', (0, 0), (-1, -1), 1, colors.Color(0.8, 0.8, 0.8)),
-            ('BACKGROUND', (0, 0), (-1, -1), colors.Color(0.98, 0.98, 0.98)),
-        ]))
+        current_y -= 30 * mm # Espacio reservado para el encabezado
         
-        elements.append(user_table)
-        elements.append(Spacer(1, 20))
+        # --- INFORMACIÓN DEL USUARIO (Grid Compacto) ---
         
-        return elements
-    
-    def build_payment_details(self, pago_data: Dict) -> list:
-        """Construye los detalles del pago con diseño profesional"""
-        elements = []
+        # Fondo suave para el área de usuario
+        user_info_height = 18 * mm
+        c.setFillColor(colors.Color(0.96, 0.96, 0.96))
+        c.rect(left_margin, current_y - user_info_height, content_width, user_info_height, stroke=0, fill=1)
+        c.setStrokeColor(colors.lightgrey)
+        c.rect(left_margin, current_y - user_info_height, content_width, user_info_height, stroke=1, fill=0)
         
-        # Título de la sección
-        details_title = Paragraph("💰 DETALLE DE SERVICIOS PAGADOS", self.section_title_style)
-        elements.append(details_title)
-        elements.append(Spacer(1, 12))
+        c.setFillColor(self.text_color)
         
-        # Preparar datos para la tabla con mejor formato
-        table_data = [['CONCEPTO', 'PERÍODO', 'PRECIO UNIT.', 'CANT.', 'SUBTOTAL']]
+        # Fila 1: Usuario No. y Nombre
+        row1_y = current_y - 6*mm
         
-        # Agrupar detalles por tipo
-        mensualidades = []
-        otros_conceptos = []
+        # Usuario ID
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(left_margin + 5*mm, row1_y, "USUARIO NO:")
+        c.setFont("Helvetica", 10)
+        c.setFillColor(self.red_color)
+        c.drawString(left_margin + 35*mm, row1_y, str(data.get('usuario_id', '')))
         
-        for detalle in pago_data['detalles']:
-            if detalle['mes']:
-                mensualidades.append(detalle)
-            else:
-                otros_conceptos.append(detalle)
+        # Nombre
+        c.setFillColor(self.text_color)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(left_margin + 60*mm, row1_y, "NOMBRE:")
+        c.setFont("Helvetica", 10)
+        c.drawString(left_margin + 85*mm, row1_y, str(data.get('nombre', '')))
         
-        # Agregar mensualidades con mejor formato
-        if mensualidades:
-            mensualidades.sort(key=lambda x: x['mes'])
+        # Fila 2: Dirección
+        row2_y = current_y - 13*mm
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(left_margin + 5*mm, row2_y, "DIRECCIÓN:")
+        c.setFont("Helvetica", 9)
+        direccion = str(data.get('direccion', ''))
+        c.drawString(left_margin + 35*mm, row2_y, direccion[:60])
+        
+        # Tomas (Sesión) a la derecha
+        c.setFont("Helvetica-Bold", 10)
+        c.drawRightString(right_margin - 15*mm, row2_y, "TOMAS:")
+        c.setFont("Helvetica", 10)
+        c.drawRightString(right_margin - 5*mm, row2_y, str(data.get('sesion', '')))
             
-            for detalle in mensualidades:
-                mes_nombre = self.get_month_name(detalle['mes'])
-                table_data.append([
-                    '🚰 Servicio de Agua Potable',
-                    f"{mes_nombre} {detalle['anio']}",
-                    f"$ {detalle['precio']:.2f}",
-                    str(detalle['cantidad']),
-                    f"$ {detalle['precio'] * detalle['cantidad']:.2f}"
-                ])
+        current_y -= (user_info_height + 5*mm)
         
-        # Agregar otros conceptos con iconos
-        for detalle in otros_conceptos:
-            icono = self.get_concept_icon(detalle['concepto'])
-            table_data.append([
-                f"{icono} {detalle['concepto']}",
-                str(detalle['anio']),
-                f"$ {detalle['precio']:.2f}",
-                str(detalle['cantidad']),
-                f"$ {detalle['precio'] * detalle['cantidad']:.2f}"
-            ])
+        # --- TABLA DE CONCEPTOS (DINÁMICA) ---
         
-        # Crear la tabla profesional
-        details_table = Table(table_data, colWidths=[2.5*inch, 1.2*inch, 0.8*inch, 0.5*inch, 1*inch])
-        details_table.setStyle(TableStyle([
-            # Estilo del encabezado mejorado
-            ('BACKGROUND', (0, 0), (-1, 0), colors.Color(0.12, 0.23, 0.54)),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+        table_top = current_y
+        
+        # Columnas ajustadas para evitar desbordamiento
+        # Total disponible: 185.9mm (aprox)
+        # [Concepto, Mes, Cant, Precio, Total]
+        col_widths = [75, 25, 20, 30, 35] # Total 185mm
+        
+        # Calcular posiciones X
+        x_positions = [left_margin]
+        for w in col_widths:
+            x_positions.append(x_positions[-1] + w*mm)
             
-            # Estilo del contenido
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),    # Concepto
-            ('ALIGN', (1, 1), (1, -1), 'CENTER'),  # Período
-            ('ALIGN', (2, 1), (2, -1), 'RIGHT'),   # Precio
-            ('ALIGN', (3, 1), (3, -1), 'CENTER'),  # Cantidad
-            ('ALIGN', (4, 1), (4, -1), 'RIGHT'),   # Subtotal
+        # Calcular altura dinámica
+        detalles = data.get('detalles', [])
+        num_items = len(detalles)
+        header_height = 8 * mm
+        row_height = 5 * mm
+        min_rows = 3 # Mínimo de filas para que no se vea vacío
+        display_rows = max(num_items, min_rows)
+        
+        table_body_height = (display_rows * row_height) + 2*mm # +2mm padding
+        table_height = header_height + table_body_height
+        table_bottom = table_top - table_height
+        
+        # Encabezado de Tabla
+        c.setFillColor(self.primary_color)
+        c.rect(left_margin, table_top - header_height, sum(col_widths)*mm, header_height, stroke=0, fill=1)
+        
+        # Textos Encabezado
+        headers = ["CONCEPTO", "MES", "CANT.", "PRECIO", "TOTAL"]
+        
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 9)
+        
+        for i, header in enumerate(headers):
+            cell_center = x_positions[i] + (col_widths[i]*mm / 2)
+            c.drawCentredString(cell_center, table_top - 5.5*mm, header)
             
-            # Bordes profesionales
-            ('LINEBELOW', (0, 0), (-1, 0), 2, colors.Color(0.12, 0.23, 0.54)),
-            ('LINEBELOW', (0, 1), (-1, -1), 0.5, colors.Color(0.8, 0.8, 0.8)),
-            ('LINEBEFORE', (1, 0), (-1, -1), 0.5, colors.Color(0.9, 0.9, 0.9)),
+        # Líneas verticales y borde
+        c.setStrokeColor(colors.grey)
+        c.setLineWidth(0.5)
+        c.rect(left_margin, table_bottom, sum(col_widths)*mm, table_height)
+        
+        for x in x_positions[1:-1]:
+            c.line(x, table_bottom, x, table_top)
             
-            # Padding mejorado
-            ('LEFTPADDING', (0, 0), (-1, -1), 8),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        # Contenido de la Tabla
+        row_y = table_top - header_height - 4*mm # Start slightly below header
+        c.setFillColor(self.text_color)
+        c.setFont("Helvetica", 9)
+        
+        total_pagar = 0
+        
+        for detalle in detalles:
+            concepto = detalle.get('concepto', '')
+            precio = detalle.get('precio', 0)
+            cantidad = detalle.get('cantidad', 1)
+            subtotal = precio * cantidad
+            total_pagar += subtotal
             
-            # Colores alternados más suaves
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.Color(0.97, 0.97, 0.97)]),
-        ]))
-        
-        elements.append(details_table)
-        elements.append(Spacer(1, 20))
-        
-        return elements
-    
-    def get_concept_icon(self, concepto: str) -> str:
-        """Obtiene el icono apropiado para un concepto"""
-        concepto_lower = concepto.lower()
-        if 'reconexión' in concepto_lower or 'reconexion' in concepto_lower:
-            return '🔧'
-        elif 'multa' in concepto_lower:
-            return '⚠️'
-        elif 'cooperación' in concepto_lower:
-            return '🤝'
-        elif 'instalación' in concepto_lower:
-            return '🏗️'
-        elif 'mantenimiento' in concepto_lower:
-            return '🛠️'
-        else:
-            return '📋'
-    
-    def build_totals(self, pago_data: Dict) -> list:
-        """Construye la sección de totales con diseño profesional"""
-        elements = []
-        
-        elements.append(Spacer(1, 15))
-        
-        # Calcular totales por categoría
-        total_mensualidades = 0
-        total_otros = 0
-        
-        for detalle in pago_data['detalles']:
-            subtotal = detalle['precio'] * detalle['cantidad']
-            if detalle['mes']:
-                total_mensualidades += subtotal
-            else:
-                total_otros += subtotal
-        
-        # Crear tabla de totales profesional
-        totals_data = []
-        
-        if total_mensualidades > 0:
-            totals_data.append(['🚰 Subtotal Servicios Mensuales:', f"$ {total_mensualidades:.2f}"])
-        
-        if total_otros > 0:
-            totals_data.append(['📋 Subtotal Otros Conceptos:', f"$ {total_otros:.2f}"])
-        
-        # Línea separadora
-        totals_data.append(['─────────────────────────────────────', '─────────────'])
-        
-        # Total principal destacado
-        totals_data.append(['💰 TOTAL PAGADO:', f"$ {pago_data['total']:.2f}"])
-        
-        # Crear tabla con mejor diseño
-        totals_table = Table(totals_data, colWidths=[4*inch, 1.5*inch])
-        totals_table.setStyle(TableStyle([
-            # Subtotales
-            ('FONTNAME', (0, 0), (-1, -3), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -3), 11),
-            ('TEXTCOLOR', (0, 0), (-1, -3), colors.Color(0.2, 0.2, 0.2)),
+            mes = detalle.get('mes')
+            anio = detalle.get('anio')
             
-            # Línea separadora
-            ('FONTNAME', (0, -2), (-1, -2), 'Helvetica'),
-            ('FONTSIZE', (0, -2), (-1, -2), 8),
-            ('TEXTCOLOR', (0, -2), (-1, -2), colors.Color(0.5, 0.5, 0.5)),
+            # Lógica de visualización
+            texto_concepto = concepto
+            texto_mes = "-"
             
-            # Total principal
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, -1), (-1, -1), 16),
-            ('TEXTCOLOR', (0, -1), (-1, -1), colors.Color(0.0, 0.5, 0.0)),
-            ('BACKGROUND', (0, -1), (-1, -1), colors.Color(0.95, 1.0, 0.95)),
+            if mes:
+                texto_concepto = "Servicio de Agua Potable"
+                texto_mes = f"{self.get_month_name(mes)} {anio if anio else ''}"
             
-            # Alineación
-            ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
-            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-            ('TEXTCOLOR', (0, -1), (-1, -1), colors.darkgreen),
-            ('LINEABOVE', (0, -1), (-1, -1), 2, colors.darkgreen),
-            # Padding mejorado
-            ('TOPPADDING', (0, 0), (-1, -2), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -2), 6),
-            ('TOPPADDING', (0, -1), (-1, -1), 12),
-            ('BOTTOMPADDING', (0, -1), (-1, -1), 12),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 15),
-            ('LEFTPADDING', (0, 0), (-1, -1), 15),
-        ]))
-        
-        elements.append(totals_table)
-        elements.append(Spacer(1, 25))
-        
-        return elements
-    
-    def build_footer(self, pago_data: Dict) -> list:
-        """Construye el pie del recibo"""
-        elements = []
-        
-        # Observaciones si las hay
-        if pago_data.get('observaciones'):
-            obs_title = Paragraph("OBSERVACIONES:", self.subtitle_style)
-            elements.append(obs_title)
+            # 1. Concepto
+            c.drawString(x_positions[0] + 2*mm, row_y, texto_concepto[:35]) # Truncar si es muy largo
             
-            obs_text = Paragraph(pago_data['observaciones'], self.user_info_style)
-            elements.append(obs_text)
-            elements.append(Spacer(1, 20))
+            # 2. Mes
+            c.drawCentredString(x_positions[1] + col_widths[1]*mm/2, row_y, texto_mes)
+            
+            # 3. Cantidad
+            c.drawCentredString(x_positions[2] + col_widths[2]*mm/2, row_y, str(cantidad))
+            
+            # 4. Precio
+            c.drawRightString(x_positions[3] + col_widths[3]*mm - 2*mm, row_y, f"${precio:.2f}")
+            
+            # 5. Total
+            c.setFont("Helvetica-Bold", 9)
+            c.drawRightString(x_positions[4] + col_widths[4]*mm - 2*mm, row_y, f"${subtotal:.2f}")
+            c.setFont("Helvetica", 9)
+            
+            row_y -= row_height
+            
+        # Total a Pagar (Pie de tabla)
+        total_y = table_bottom - 8*mm
+        
+        # Caja de Total
+        c.setFillColor(self.primary_color)
+        c.rect(x_positions[-2], total_y - 2*mm, (col_widths[-1] + col_widths[-2])*mm, 10*mm, stroke=0, fill=1)
+        
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawRightString(x_positions[-1] + col_widths[-1]*mm - 2*mm, total_y + 1.5*mm, f"${total_pagar:.2f}")
+        c.drawString(x_positions[-2] + 2*mm, total_y + 1.5*mm, "TOTAL A PAGAR:")
+        
+        # Firmas (Dinámico basado en total_y)
+        sign_y = total_y - 20*mm
+        
+        c.setFillColor(self.text_color)
+        c.setStrokeColor(self.text_color)
         
         # Línea de firma
-        elements.append(Spacer(1, 30))
+        c.line(width/2 - 30*mm, sign_y, width/2 + 30*mm, sign_y)
         
-        signature_line = Table([['_' * 50]], colWidths=[300])
-        signature_line.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ]))
-        elements.append(signature_line)
+        c.setFont("Helvetica", 9)
+        c.drawCentredString(width/2, sign_y - 5*mm, "CARLOS LOPEZ SANTOS")
+        c.setFont("Helvetica-Bold", 8)
+        c.drawCentredString(width/2, sign_y - 9*mm, "COBRADOR AUTORIZADO")
         
-        signature_text = Paragraph("Firma del Cobrador", self.user_info_style)
-        elements.append(signature_text)
+        # Notas Legales (Pie de página)
+        note_y = sign_y - 10*mm
+        c.setFillColor(colors.grey)
+        c.setFont("Helvetica-Oblique", 6)
+        c.drawCentredString(width/2, note_y, "NOTA: Conserve este recibo para cualquier aclaración. El pago de este recibo no libera de adeudos anteriores.")
         
-        elements.append(Spacer(1, 20))
-        
-        # Pie de página
-        footer_text = Paragraph(
-            f"Recibo generado el {datetime.now().strftime('%d/%m/%Y a las %H:%M')}",
-            self.footer_style
-        )
-        elements.append(footer_text)
-        
-        return elements
+        # Indicador de copia (arriba a la derecha)
+        c.setFont("Helvetica-Bold", 10)
+        c.setFillColor(self.red_color)
+        c.drawRightString(right_margin, start_y - 5*mm, copy_type)
     
-    def get_month_name(self, month_num: int) -> str:
-        """Convierte número de mes a nombre"""
-        months = [
-            '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-        ]
-        return months[month_num] if 1 <= month_num <= 12 else str(month_num)
-    
-    def print_receipt(self, filepath: str) -> bool:
-        """
-        Intenta imprimir el recibo (Windows)
-        
-        Args:
-            filepath: Ruta del archivo PDF
-            
-        Returns:
-            bool: True si se inició la impresión correctamente
-        """
-        try:
-            import os
-            os.startfile(filepath, "print")
-            return True
-        except Exception as e:
-            print(f"Error al imprimir: {e}")
-            return False
-
-
-def main():
-    """Función de prueba"""
-    generator = ReceiptGenerator()
-    
-    # Crear un pago de prueba
-    db = get_db_manager()
-    
-    # Verificar si hay usuarios para hacer una prueba
-    usuarios = db.obtener_todos_usuarios()
-    if not usuarios:
-        print("No hay usuarios en la base de datos para hacer prueba")
-        return
-    
-    # Usar el primer usuario
-    usuario = usuarios[0]
-    
-    # Registrar un pago de prueba
-    pago_id = db.registrar_pago(
-        usuario_id=usuario['id'],
-        meses_pagados=[1, 2, 3],
-        anio=2024,
-        conceptos_adicionales=[("Cooperación Anual", 100.0)],
-        observaciones="Pago de prueba del sistema"
-    )
-    
-    if pago_id > 0:
-        print(f"Pago de prueba registrado con ID: {pago_id}")
-        
-        # Generar recibo
-        pdf_path = generator.generate_receipt(pago_id)
-        if pdf_path:
-            print(f"Recibo generado: {pdf_path}")
-        else:
-            print("Error al generar recibo")
-    else:
-        print("Error al registrar pago de prueba")
-
-
-if __name__ == "__main__":
-    main()
+    def get_month_name(self, month: int) -> str:
+        """Retorna el nombre del mes en español"""
+        meses = {
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+        }
+        return meses.get(month, "")

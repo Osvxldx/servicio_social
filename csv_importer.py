@@ -11,6 +11,7 @@ from tkinter import messagebox
 import tkinter as tk
 from tkinter import filedialog
 
+
 class CSVImporter:
     def __init__(self):
         self.db = get_db_manager()

@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from database import get_db_manager
 from typing import Dict, List
+import os
 
 class ConfigurationWindow:
     def __init__(self, parent=None):
@@ -698,8 +699,18 @@ class ConfigurationWindow:
             )
             
             if backup_path:
+                # Determinar ruta de la BD
+                db_path = os.path.abspath("agua_potable.db")
+                if not os.path.exists(db_path):
+                    # Intentar en el directorio del script
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    db_path = os.path.join(script_dir, "agua_potable.db")
+                
+                if not os.path.exists(db_path):
+                    raise FileNotFoundError(f"No se encuentra la base de datos en: {db_path}")
+
                 # Copiar la base de datos
-                shutil.copy2("agua_potable.db", backup_path)
+                shutil.copy2(db_path, backup_path)
                 messagebox.showinfo("Éxito", f"Respaldo creado correctamente en:\n{backup_path}")
                 
         except Exception as e:
@@ -730,8 +741,12 @@ class ConfigurationWindow:
                 if messagebox.askyesno("Última Confirmación",
                                      "¿Confirma restaurar el respaldo?\n\n" +
                                      "Esta acción NO se puede deshacer."):
+                    
+                    # Determinar ruta destino
+                    dest_path = os.path.abspath("agua_potable.db")
+                    
                     # Restaurar la base de datos
-                    shutil.copy2(backup_path, "agua_potable.db")
+                    shutil.copy2(backup_path, dest_path)
                     messagebox.showinfo("Éxito", 
                                       "Respaldo restaurado correctamente.\n\n" +
                                       "Se recomienda reiniciar la aplicación.")

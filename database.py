@@ -1,33 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Módulo de gestión de base de datos SQLite para el sistema de agua potable
+Módulo de base de datos para el sistema de agua potable
 """
 
 import sqlite3
 import os
-from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 
 class DatabaseManager:
-    def __init__(self, db_path: str = "agua_potable.db"):
-        """
-        Inicializa el gestor de base de datos
-        
-        Args:
-            db_path: Ruta al archivo de la base de datos SQLite
-        """
-        self.db_path = db_path
-        self.init_database()
-    
+    def __init__(self, db_name: str = "agua_potable.db"):
+        self.db_name = db_name
+        self.initialize_database()
+        self.migrate_database()
+
     def get_connection(self) -> sqlite3.Connection:
         """Obtiene una conexión a la base de datos"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row  # Para obtener resultados como diccionarios
+        conn = sqlite3.connect(self.db_name)
+        conn.row_factory = sqlite3.Row
         return conn
-    
-    def init_database(self):
-        """Inicializa las tablas de la base de datos"""
+
+    def initialize_database(self):
+        """Inicializa la estructura de la base de datos"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
@@ -36,35 +30,13 @@ class DatabaseManager:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS usuarios (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    numero INTEGER UNIQUE NOT NULL,
                     nombre TEXT NOT NULL,
                     direccion TEXT,
                     telefono TEXT,
                     email TEXT,
+                    sesion INTEGER NOT NULL DEFAULT 1 CHECK (sesion IN (1, 2, 3)),
                     estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado')),
                     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Tabla de configuración del sistema
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS configuracion (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    clave TEXT UNIQUE NOT NULL,
-                    valor TEXT NOT NULL,
-                    descripcion TEXT,
-                    fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Tabla de conceptos de cobro
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS conceptos_cobro (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nombre TEXT UNIQUE NOT NULL,
-                    precio REAL NOT NULL,
-                    activo BOOLEAN DEFAULT 1,
-                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
@@ -80,32 +52,56 @@ class DatabaseManager:
                 )
             ''')
             
-            # Tabla detalle de pagos (mensualidades y otros conceptos)
+            # Tabla de detalle de pagos
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS detalle_pagos (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     pago_id INTEGER NOT NULL,
                     concepto TEXT NOT NULL,
-                    mes INTEGER NULL,  -- NULL para conceptos que no son mensualidades
-                    anio INTEGER NOT NULL,
+                    mes INTEGER,
+                    anio INTEGER,
                     precio REAL NOT NULL,
-                    cantidad INTEGER DEFAULT 1,
                     FOREIGN KEY (pago_id) REFERENCES pagos (id)
                 )
             ''')
             
-            # Insertar configuración inicial si no existe
+            # Tabla de configuración
             cursor.execute('''
-                INSERT OR IGNORE INTO configuracion (clave, valor, descripcion)
-                VALUES ('cuota_mensual', '50.0', 'Cuota mensual del servicio de agua')
+                CREATE TABLE IF NOT EXISTS configuracion (
+                    clave TEXT PRIMARY KEY,
+                    valor TEXT,
+                    fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
             ''')
             
+            # Tabla de conceptos de cobro
             cursor.execute('''
-                INSERT OR IGNORE INTO configuracion (clave, valor, descripcion)
-                VALUES ('pin_acceso', '1234', 'PIN de acceso al sistema')
+                CREATE TABLE IF NOT EXISTS conceptos_cobro (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nombre TEXT NOT NULL UNIQUE,
+                    precio REAL NOT NULL,
+                    activo INTEGER DEFAULT 1
+                )
             ''')
             
-            # Insertar algunos conceptos de cobro predeterminados
+            # Insertar configuración por defecto si no existe
+            config_default = [
+                ('cuota_mensual', '50.0'),
+                ('pin_acceso', '1234'),
+                ('committee_name', 'Comité de Agua Potable'),
+                ('committee_address', 'San Antonio'),
+                ('committee_phone', ''),
+                ('committee_president', ''),
+                ('committee_treasurer', '')
+            ]
+            
+            for clave, valor in config_default:
+                cursor.execute('''
+                    INSERT OR IGNORE INTO configuracion (clave, valor)
+                    VALUES (?, ?)
+                ''', (clave, valor))
+            
+            # Insertar conceptos por defecto
             conceptos_default = [
                 ('Cooperación Anual', 100.0),
                 ('Toma Nueva', 500.0),
@@ -126,58 +122,97 @@ class DatabaseManager:
             conn.rollback()
         finally:
             conn.close()
+
+    def migrate_database(self):
+        """Migra la base de datos si es necesario (agrega sesion, elimina numero)"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Verificar si la columna 'sesion' existe en la tabla usuarios
+            cursor.execute("PRAGMA table_info(usuarios)")
+            columns = [info[1] for info in cursor.fetchall()]
+            
+            if 'sesion' not in columns:
+                print("Iniciando migración de base de datos...")
+                
+                # 1. Renombrar tabla actual
+                cursor.execute("ALTER TABLE usuarios RENAME TO usuarios_old")
+                
+                # 2. Crear nueva tabla con la estructura correcta
+                cursor.execute('''
+                    CREATE TABLE usuarios (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        nombre TEXT NOT NULL,
+                        direccion TEXT,
+                        telefono TEXT,
+                        email TEXT,
+                        sesion INTEGER NOT NULL DEFAULT 1 CHECK (sesion IN (1, 2, 3)),
+                        estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado')),
+                        fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
+                # 3. Copiar datos (Asumiendo sesion 1 por defecto para usuarios existentes)
+                # Nota: 'numero' se pierde en esta migración como se solicitó
+                cursor.execute('''
+                    INSERT INTO usuarios (id, nombre, direccion, telefono, email, estado, fecha_registro)
+                    SELECT id, nombre, direccion, telefono, email, estado, fecha_registro
+                    FROM usuarios_old
+                ''')
+                
+                # 4. Eliminar tabla antigua
+                cursor.execute("DROP TABLE usuarios_old")
+                
+                conn.commit()
+                print("Migración completada exitosamente.")
+                
+        except sqlite3.Error as e:
+            print(f"Error durante la migración: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
     
     # === GESTIÓN DE USUARIOS ===
     
-    def crear_usuario(self, numero: int, nombre: str, direccion: str = "", 
+    def crear_usuario(self, nombre: str, sesion: int, direccion: str = "", 
                      telefono: str = "", email: str = "") -> bool:
         """
         Crea un nuevo usuario
         
+        Args:
+            nombre: Nombre del usuario
+            sesion: Número de sesión (1, 2, 3)
+            direccion: Dirección
+            telefono: Teléfono
+            email: Email
+            
         Returns:
-            bool: True si se creó exitosamente, False si ya existe el número
+            bool: True si se creó exitosamente
         """
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
             cursor.execute('''
-                INSERT INTO usuarios (numero, nombre, direccion, telefono, email)
+                INSERT INTO usuarios (nombre, sesion, direccion, telefono, email)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (numero, nombre, direccion, telefono, email))
+            ''', (nombre, sesion, direccion, telefono, email))
             conn.commit()
             return True
-        except sqlite3.IntegrityError:
-            return False  # El número ya existe
+        except sqlite3.Error as e:
+            print(f"Error al crear usuario: {e}")
+            return False
         finally:
             conn.close()
     
-    def get_next_user_number(self) -> int:
-        """
-        Obtiene el siguiente número de usuario disponible
-        
-        Returns:
-            int: El siguiente número secuencial disponible
-        """
+    def buscar_usuario_por_id(self, user_id: int) -> Optional[Dict]:
+        """Busca un usuario por su ID"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
-            # Buscar el número más alto
-            cursor.execute('SELECT MAX(numero) FROM usuarios')
-            result = cursor.fetchone()
-            max_number = result[0] if result and result[0] is not None else 0
-            return max_number + 1
-        finally:
-            conn.close()
-    
-    def buscar_usuario_por_numero(self, numero: int) -> Optional[Dict]:
-        """Busca un usuario por su número"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute('SELECT * FROM usuarios WHERE numero = ?', (numero,))
+            cursor.execute('SELECT * FROM usuarios WHERE id = ?', (user_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
         finally:
@@ -242,13 +277,34 @@ class DatabaseManager:
                 cursor.execute('''
                     SELECT * FROM usuarios 
                     WHERE estado = 'Activo' 
-                    ORDER BY numero
+                    ORDER BY id
                 ''')
             else:
-                cursor.execute('SELECT * FROM usuarios ORDER BY numero')
+                cursor.execute('SELECT * FROM usuarios ORDER BY id')
             
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def eliminar_usuario(self, usuario_id: int) -> bool:
+        """Elimina un usuario por su ID"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Primero verificar si tiene pagos
+            cursor.execute('SELECT COUNT(*) FROM pagos WHERE usuario_id = ?', (usuario_id,))
+            if cursor.fetchone()[0] > 0:
+                # Si tiene pagos, no permitir eliminar (o se podría hacer soft delete)
+                return False
+                
+            cursor.execute('DELETE FROM usuarios WHERE id = ?', (usuario_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            print(f"Error al eliminar usuario: {e}")
+            return False
         finally:
             conn.close()
     
@@ -278,17 +334,13 @@ class DatabaseManager:
         finally:
             conn.close()
     
-    def registrar_pago(self, usuario_id: int, meses_pagados: List[int], anio: int,
-                      conceptos_adicionales: List[Tuple[str, float]] = None,
-                      observaciones: str = "") -> int:
+    def registrar_pago(self, usuario_id: int, detalles: List[Dict], observaciones: str = "") -> int:
         """
-        Registra un pago completo
+        Registra un pago completo con detalles flexibles
         
         Args:
             usuario_id: ID del usuario
-            meses_pagados: Lista de meses pagados (1-12)
-            anio: Año de los meses pagados
-            conceptos_adicionales: Lista de tuplas (concepto, precio)
+            detalles: Lista de diccionarios {'concepto': str, 'precio': float, 'mes': int|None, 'anio': int|None}
             observaciones: Observaciones del pago
             
         Returns:
@@ -298,14 +350,8 @@ class DatabaseManager:
         cursor = conn.cursor()
         
         try:
-            # Obtener la cuota mensual actual
-            cuota_mensual = self.obtener_configuracion('cuota_mensual')
-            cuota_mensual = float(cuota_mensual) if cuota_mensual else 50.0
-            
             # Calcular total
-            total = len(meses_pagados) * cuota_mensual
-            if conceptos_adicionales:
-                total += sum(precio for _, precio in conceptos_adicionales)
+            total = sum(d['precio'] for d in detalles)
             
             # Insertar el pago principal
             cursor.execute('''
@@ -315,20 +361,18 @@ class DatabaseManager:
             
             pago_id = cursor.lastrowid
             
-            # Insertar detalles de mensualidades
-            for mes in meses_pagados:
+            # Insertar detalles
+            for detalle in detalles:
                 cursor.execute('''
                     INSERT INTO detalle_pagos (pago_id, concepto, mes, anio, precio)
                     VALUES (?, ?, ?, ?, ?)
-                ''', (pago_id, 'Mensualidad', mes, anio, cuota_mensual))
-            
-            # Insertar conceptos adicionales
-            if conceptos_adicionales:
-                for concepto, precio in conceptos_adicionales:
-                    cursor.execute('''
-                        INSERT INTO detalle_pagos (pago_id, concepto, mes, anio, precio)
-                        VALUES (?, ?, NULL, ?, ?)
-                    ''', (pago_id, concepto, anio, precio))
+                ''', (
+                    pago_id, 
+                    detalle['concepto'], 
+                    detalle.get('mes'), 
+                    detalle.get('anio'), 
+                    detalle['precio']
+                ))
             
             conn.commit()
             return pago_id
@@ -340,14 +384,14 @@ class DatabaseManager:
         finally:
             conn.close()
     
-    def obtener_historial_pagos_usuario(self, usuario_id: int) -> List[Dict]:
+    def obtener_pagos_usuario(self, usuario_id: int) -> List[Dict]:
         """Obtiene el historial de pagos de un usuario"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
             cursor.execute('''
-                SELECT p.*, u.nombre, u.numero
+                SELECT p.*, u.nombre
                 FROM pagos p
                 JOIN usuarios u ON p.usuario_id = u.id
                 WHERE p.usuario_id = ?
@@ -380,7 +424,7 @@ class DatabaseManager:
         try:
             # Obtener información del pago y usuario
             cursor.execute('''
-                SELECT p.*, u.nombre, u.numero, u.direccion
+                SELECT p.*, u.nombre, u.direccion, u.sesion
                 FROM pagos p
                 JOIN usuarios u ON p.usuario_id = u.id
                 WHERE p.id = ?
