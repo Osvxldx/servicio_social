@@ -6,9 +6,9 @@ Módulo de registro de pagos para el sistema de agua potable
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import get_db_manager
+from .database import get_db_manager
 from datetime import datetime
-from receipt_generator import ReceiptGenerator
+from .receipt_generator import ReceiptGenerator
 import os
 
 class PaymentRegistrationWindow:
@@ -169,6 +169,8 @@ class PaymentRegistrationWindow:
             ("Nombre:", "user_name_lbl"),
             ("Sesión:", "user_session_lbl"),
             ("Dirección:", "user_address_lbl"),
+            ("Vacas:", "user_vacas_lbl"),
+            ("Inquilinos:", "user_inquilinos_lbl"),
             ("Estado:", "user_status_lbl")
         ]
         
@@ -304,6 +306,28 @@ class PaymentRegistrationWindow:
         )
         del_btn.pack(fill=tk.X, pady=(0, 10))
         
+        # Botón Generar Multa por Desperdicio
+        fine_btn = tk.Button(
+            frame,
+            text="Generar Multa por Desperdicio",
+            command=self.generate_fine,
+            bg='#c0392b',
+            fg='white',
+            font=('Arial', 9, 'bold')
+        )
+        fine_btn.pack(fill=tk.X, pady=(0, 10))
+        
+        # Botón Generar Multa por Inasistencia
+        absence_fine_btn = tk.Button(
+            frame,
+            text="Generar Multa por Inasistencia",
+            command=self.generate_absence_fine,
+            bg='#d35400',
+            fg='white',
+            font=('Arial', 9, 'bold')
+        )
+        absence_fine_btn.pack(fill=tk.X, pady=(0, 10))
+        
         # Total
         total_frame = tk.Frame(frame)
         total_frame.pack(fill=tk.X, pady=10)
@@ -397,6 +421,8 @@ class PaymentRegistrationWindow:
         self.user_info_widgets['user_name_lbl'].config(text=user['nombre'])
         self.user_info_widgets['user_session_lbl'].config(text=str(user['sesion']))
         self.user_info_widgets['user_address_lbl'].config(text=user['direccion'] or "-")
+        self.user_info_widgets['user_vacas_lbl'].config(text=str(user.get('vacas', 0)))
+        self.user_info_widgets['user_inquilinos_lbl'].config(text=str(user.get('inquilinos', 0)))
         self.user_info_widgets['user_status_lbl'].config(text=user['estado'])
         
         # Habilitar controles
@@ -470,7 +496,19 @@ class PaymentRegistrationWindow:
         try:
             year = int(self.year_var.get())
             db = get_db_manager()
-            cuota = float(db.obtener_configuracion('cuota_mensual') or 50.0)
+            
+            # Obtener costos de configuración
+            cuota_base = float(db.obtener_configuracion('cuota_mensual') or 70.0)
+            costo_vacas = float(db.obtener_configuracion('costo_vacas') or 0.0)
+            costo_inquilinos = float(db.obtener_configuracion('costo_inquilinos') or 0.0)
+            multa_retraso = float(db.obtener_configuracion('multa_retraso') or 100.0)
+            
+            # Obtener datos del usuario
+            num_vacas = self.current_user.get('vacas', 0)
+            num_inquilinos = self.current_user.get('inquilinos', 0)
+            
+            # Calcular cuota total mensual
+            total_mensual = cuota_base + (num_vacas * costo_vacas) + (num_inquilinos * costo_inquilinos)
             
             added_count = 0
             for i, var in enumerate(self.month_vars):
@@ -483,13 +521,38 @@ class PaymentRegistrationWindow:
                         'concepto': 'Mensualidad',
                         'mes': mes_num,
                         'anio': year,
-                        'precio': cuota,
-                        'display': f"Mensualidad: {mes_nombre} {year} - ${cuota:.2f}"
+                        'precio': total_mensual,
+                        'display': f"Mensualidad: {mes_nombre} {year} - ${total_mensual:.2f}"
                     })
                     added_count += 1
                     var.set(False) # Desmarcar
             
             if added_count > 0:
+                # Verificar si aplica multa por retraso (después del 31 de Marzo)
+                today = datetime.now()
+                apply_fine = False
+                
+                # Si es año anterior, siempre aplica
+                if year < today.year:
+                    apply_fine = True
+                # Si es año actual y estamos después de marzo
+                elif year == today.year and today.month > 3:
+                    apply_fine = True
+                
+                if apply_fine:
+                    # Verificar si ya está en el carrito
+                    fine_in_cart = any(item['concepto'] == 'Multa por Retraso' and item.get('anio') == year for item in self.cart)
+                    
+                    if not fine_in_cart:
+                        if messagebox.askyesno("Retraso Detectado", f"El pago se está realizando fuera de tiempo (después del 31 de Marzo).\n¿Desea agregar la multa por retraso de ${multa_retraso:.2f}?"):
+                            self.cart.append({
+                                'concepto': 'Multa por Retraso',
+                                'mes': None,
+                                'anio': year,
+                                'precio': multa_retraso,
+                                'display': f"Multa: Retraso {year} - ${multa_retraso:.2f}"
+                            })
+
                 self.update_cart_display()
                 self.update_months_status() # Actualizar visualmente (deshabilitar los agregados)
             else:
@@ -556,9 +619,7 @@ class PaymentRegistrationWindow:
         try:
             db = get_db_manager()
             
-            # Preparar datos para registrar_pago (nueva firma)
-            # registrar_pago(self, usuario_id: int, detalles: List[Dict], observaciones: str = "")
-            
+            # Preparar datos para registrar_pago
             pago_id = db.registrar_pago(
                 usuario_id=self.current_user['id'],
                 detalles=self.cart,
@@ -583,3 +644,53 @@ class PaymentRegistrationWindow:
                 
         except Exception as e:
             messagebox.showerror("Error", f"Error al procesar pago: {str(e)}")
+
+    def generate_fine(self):
+        """Genera una multa por desperdicio"""
+        if not self.current_user:
+            messagebox.showwarning("Aviso", "Primero seleccione un usuario")
+            return
+            
+        try:
+            db = get_db_manager()
+            monto_multa = float(db.obtener_configuracion('multa_desperdicio') or 500.0)
+            
+            if messagebox.askyesno("Generar Multa", f"¿Desea generar una multa por desperdicio de agua?\nMonto: ${monto_multa:.2f}"):
+                current_year = int(self.year_var.get())
+                
+                self.cart.append({
+                    'concepto': 'Multa por Desperdicio',
+                    'mes': None,
+                    'anio': current_year,
+                    'precio': monto_multa,
+                    'display': f"Multa: Desperdicio - ${monto_multa:.2f}"
+                })
+                self.update_cart_display()
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al generar multa: {e}")
+
+    def generate_absence_fine(self):
+        """Genera una multa por inasistencia"""
+        if not self.current_user:
+            messagebox.showwarning("Aviso", "Primero seleccione un usuario")
+            return
+            
+        try:
+            db = get_db_manager()
+            monto_multa = float(db.obtener_configuracion('multa_inasistencia') or 200.0)
+            
+            if messagebox.askyesno("Generar Multa", f"¿Desea generar una multa por inasistencia?\nMonto: ${monto_multa:.2f}"):
+                current_year = int(self.year_var.get())
+                
+                self.cart.append({
+                    'concepto': 'Multa por Inasistencia',
+                    'mes': None,
+                    'anio': current_year,
+                    'precio': monto_multa,
+                    'display': f"Multa: Inasistencia - ${monto_multa:.2f}"
+                })
+                self.update_cart_display()
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al generar multa: {e}")

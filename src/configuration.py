@@ -6,7 +6,7 @@ Módulo de configuración del sistema de agua potable
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import get_db_manager
+from .database import get_db_manager
 from typing import Dict, List
 import os
 
@@ -25,6 +25,7 @@ class ConfigurationWindow:
         
         # Variables
         self.concepts_data = []
+        self.rates_vars = {}
         
         # Configurar la interfaz
         self.setup_ui()
@@ -85,6 +86,9 @@ class ConfigurationWindow:
         
         # Sección de cuota mensual
         self.create_monthly_fee_section(scrollable_frame)
+        
+        # Sección de tarifas y multas
+        self.create_rates_fines_section(scrollable_frame)
         
         # Sección de información del comité
         self.create_committee_info_section(scrollable_frame)
@@ -154,6 +158,57 @@ class ConfigurationWindow:
             wraplength=400
         )
         info_label.pack(pady=(0, 5))
+
+    def create_rates_fines_section(self, parent):
+        """Crea la sección de tarifas y multas"""
+        frame = tk.LabelFrame(parent, text="Tarifas y Multas", font=('Arial', 12, 'bold'))
+        frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        inner_frame = tk.Frame(frame)
+        inner_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        fields = [
+            ("Costo por Vaca:", "costo_vacas"),
+            ("Costo por Inquilino:", "costo_inquilinos"),
+            ("Multa por Retraso:", "multa_retraso"),
+            ("Multa por Desperdicio:", "multa_desperdicio"),
+            ("Multa por Inasistencia:", "multa_inasistencia")
+        ]
+        
+        self.rates_vars = {}
+        
+        for i, (label_text, key) in enumerate(fields):
+            row_frame = tk.Frame(inner_frame)
+            row_frame.pack(fill=tk.X, pady=5)
+            
+            tk.Label(row_frame, text=label_text, width=20, anchor='w').pack(side=tk.LEFT)
+            
+            var = tk.StringVar()
+            self.rates_vars[key] = var
+            
+            entry = tk.Entry(row_frame, textvariable=var, width=10)
+            entry.pack(side=tk.LEFT, padx=5)
+            
+            tk.Label(row_frame, text="$").pack(side=tk.LEFT)
+            
+        btn = tk.Button(inner_frame, text="Actualizar Tarifas", command=self.update_rates, bg='#3498db', fg='white')
+        btn.pack(pady=10)
+
+    def update_rates(self):
+        try:
+            db = get_db_manager()
+            for key, var in self.rates_vars.items():
+                value = var.get().strip()
+                if value:
+                    try:
+                        float(value) # Validate number
+                        db.actualizar_configuracion(key, value)
+                    except ValueError:
+                        messagebox.showwarning("Error", f"Valor inválido para {key}")
+                        return
+            messagebox.showinfo("Éxito", "Tarifas actualizadas")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error: {e}")
     
     def create_committee_info_section(self, parent):
         """Crea la sección de información del comité"""
@@ -465,6 +520,22 @@ class ConfigurationWindow:
             if monthly_fee:
                 self.current_fee_label.config(text=f"${float(monthly_fee):.2f}")
             
+            # Cargar tarifas y multas
+            defaults = {
+                'costo_vacas': '0.0',
+                'costo_inquilinos': '0.0',
+                'multa_retraso': '100.0',
+                'multa_desperdicio': '500.0',
+                'multa_inasistencia': '200.0'
+            }
+            
+            for key, var in self.rates_vars.items():
+                val = db.obtener_configuracion(key)
+                if val:
+                    var.set(val)
+                else:
+                    var.set(defaults.get(key, '0.0'))
+
             # Cargar información del comité
             committee_fields = [
                 'committee_name', 'committee_address', 'committee_phone',
@@ -681,12 +752,12 @@ class ConfigurationWindow:
                     
             except Exception as e:
                 messagebox.showerror("Error", f"Error al cambiar PIN: {str(e)}")
-    
+
     def create_backup(self):
         """Crea un respaldo de la base de datos"""
         try:
             from tkinter import filedialog
-            import shutil
+            import sqlite3
             from datetime import datetime
             
             # Seleccionar ubicación para el respaldo
@@ -709,13 +780,21 @@ class ConfigurationWindow:
                 if not os.path.exists(db_path):
                     raise FileNotFoundError(f"No se encuentra la base de datos en: {db_path}")
 
-                # Copiar la base de datos
-                shutil.copy2(db_path, backup_path)
+                # Usar la API de respaldo de SQLite
+                source_conn = sqlite3.connect(db_path)
+                dest_conn = sqlite3.connect(backup_path)
+                
+                with dest_conn:
+                    source_conn.backup(dest_conn)
+                
+                dest_conn.close()
+                source_conn.close()
+                
                 messagebox.showinfo("Éxito", f"Respaldo creado correctamente en:\n{backup_path}")
                 
         except Exception as e:
             messagebox.showerror("Error", f"Error al crear respaldo: {str(e)}")
-    
+
     def restore_backup(self):
         """Restaura un respaldo de la base de datos"""
         try:
@@ -872,35 +951,6 @@ class EditConceptDialog:
             messagebox.showwarning("Precio inválido", "Ingrese un precio numérico válido")
         except Exception as e:
             messagebox.showerror("Error", f"Error al guardar cambios: {str(e)}")
-    
-    # === FUNCIONES DE NAVEGACIÓN ===
-    
-    def open_payment_registration(self):
-        """Abre el módulo de registro de pagos"""
-        try:
-            from payment_registration import PaymentRegistrationWindow
-            PaymentRegistrationWindow(self.parent)
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al abrir registro de pagos: {str(e)}")
-    
-    def open_user_management(self):
-        """Abre el módulo de gestión de usuarios"""
-        try:
-            from user_management import UserManagementWindow
-            UserManagementWindow(self.parent)
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al abrir gestión de usuarios: {str(e)}")
-    
-    def open_main_window(self):
-        """Abre la ventana principal"""
-        try:
-            # Cerrar esta ventana y abrir la principal
-            self.window.destroy()
-            from main import MainApplication
-            app = MainApplication()
-            app.run()
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al abrir menú principal: {str(e)}")
 
 
 def main():

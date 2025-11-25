@@ -6,10 +6,10 @@ Módulo de gestión de usuarios para el sistema de agua potable
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import get_db_manager
+from .database import get_db_manager
 import re
 import os
-from receipt_generator import ReceiptGenerator
+from .receipt_generator import ReceiptGenerator
 
 
 class UserManagementWindow:

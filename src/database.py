@@ -35,6 +35,8 @@ class DatabaseManager:
                     telefono TEXT,
                     email TEXT,
                     sesion INTEGER NOT NULL DEFAULT 1 CHECK (sesion IN (1, 2, 3)),
+                    vacas INTEGER DEFAULT 0,
+                    inquilinos INTEGER DEFAULT 0,
                     estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado')),
                     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -61,6 +63,7 @@ class DatabaseManager:
                     mes INTEGER,
                     anio INTEGER,
                     precio REAL NOT NULL,
+                    cantidad INTEGER DEFAULT 1,
                     FOREIGN KEY (pago_id) REFERENCES pagos (id)
                 )
             ''')
@@ -86,7 +89,14 @@ class DatabaseManager:
             
             # Insertar configuración por defecto si no existe
             config_default = [
-                ('cuota_mensual', '50.0'),
+                ('cuota_mensual', '70.0'),
+                ('costo_vacas', '0.0'),
+                ('costo_inquilinos', '0.0'),
+                ('costo_cooperacion', '70.0'),
+                ('costo_nueva_toma', '0.0'),
+                ('multa_retraso', '100.0'),
+                ('multa_desperdicio', '500.0'),
+                ('multa_inasistencia', '200.0'),
                 ('pin_acceso', '1234'),
                 ('committee_name', 'Comité de Agua Potable'),
                 ('committee_address', 'San Antonio'),
@@ -106,7 +116,7 @@ class DatabaseManager:
                 ('Cooperación Anual', 100.0),
                 ('Toma Nueva', 500.0),
                 ('Multa por Inasistencia', 25.0),
-                ('Multa por Desperdicio', 75.0),
+                ('Multa por Desperdicio', 500.0),
             ]
             
             for concepto, precio in conceptos_default:
@@ -124,17 +134,23 @@ class DatabaseManager:
             conn.close()
 
     def migrate_database(self):
-        """Migra la base de datos si es necesario (agrega sesion, elimina numero)"""
+        """Migra la base de datos si es necesario (agrega sesion, vacas, inquilinos)"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
-            # Verificar si la columna 'sesion' existe en la tabla usuarios
+            # Verificar columnas existentes
             cursor.execute("PRAGMA table_info(usuarios)")
             columns = [info[1] for info in cursor.fetchall()]
             
-            if 'sesion' not in columns:
-                print("Iniciando migración de base de datos...")
+            # Verificar si falta alguna columna nueva
+            missing_columns = []
+            if 'sesion' not in columns: missing_columns.append('sesion')
+            if 'vacas' not in columns: missing_columns.append('vacas')
+            if 'inquilinos' not in columns: missing_columns.append('inquilinos')
+            
+            if missing_columns:
+                print(f"Iniciando migración de base de datos. Faltan: {missing_columns}")
                 
                 # 1. Renombrar tabla actual
                 cursor.execute("ALTER TABLE usuarios RENAME TO usuarios_old")
@@ -148,16 +164,24 @@ class DatabaseManager:
                         telefono TEXT,
                         email TEXT,
                         sesion INTEGER NOT NULL DEFAULT 1 CHECK (sesion IN (1, 2, 3)),
+                        vacas INTEGER DEFAULT 0,
+                        inquilinos INTEGER DEFAULT 0,
                         estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado')),
                         fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
                 
-                # 3. Copiar datos (Asumiendo sesion 1 por defecto para usuarios existentes)
-                # Nota: 'numero' se pierde en esta migración como se solicitó
-                cursor.execute('''
-                    INSERT INTO usuarios (id, nombre, direccion, telefono, email, estado, fecha_registro)
-                    SELECT id, nombre, direccion, telefono, email, estado, fecha_registro
+                # 3. Copiar datos
+                # Construir query dinámico basado en columnas que existían
+                cols_to_copy = ['id', 'nombre', 'direccion', 'telefono', 'email', 'estado', 'fecha_registro']
+                # Si existía sesion en la tabla vieja (caso raro de migración parcial), incluirla
+                if 'sesion' in columns: cols_to_copy.append('sesion')
+                
+                cols_str = ", ".join(cols_to_copy)
+                
+                cursor.execute(f'''
+                    INSERT INTO usuarios ({cols_str})
+                    SELECT {cols_str}
                     FROM usuarios_old
                 ''')
                 
@@ -176,7 +200,7 @@ class DatabaseManager:
     # === GESTIÓN DE USUARIOS ===
     
     def crear_usuario(self, nombre: str, sesion: int, direccion: str = "", 
-                     telefono: str = "", email: str = "") -> bool:
+                     telefono: str = "", email: str = "", vacas: int = 0, inquilinos: int = 0) -> bool:
         """
         Crea un nuevo usuario
         
@@ -186,6 +210,8 @@ class DatabaseManager:
             direccion: Dirección
             telefono: Teléfono
             email: Email
+            vacas: Número de vacas
+            inquilinos: Número de inquilinos
             
         Returns:
             bool: True si se creó exitosamente
@@ -195,9 +221,9 @@ class DatabaseManager:
         
         try:
             cursor.execute('''
-                INSERT INTO usuarios (nombre, sesion, direccion, telefono, email)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (nombre, sesion, direccion, telefono, email))
+                INSERT INTO usuarios (nombre, sesion, direccion, telefono, email, vacas, inquilinos)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (nombre, sesion, direccion, telefono, email, vacas, inquilinos))
             conn.commit()
             return True
         except sqlite3.Error as e:
@@ -340,7 +366,7 @@ class DatabaseManager:
         
         Args:
             usuario_id: ID del usuario
-            detalles: Lista de diccionarios {'concepto': str, 'precio': float, 'mes': int|None, 'anio': int|None}
+            detalles: Lista de diccionarios {'concepto': str, 'precio': float, 'mes': int|None, 'anio': int|None, 'cantidad': int}
             observaciones: Observaciones del pago
             
         Returns:
@@ -364,14 +390,15 @@ class DatabaseManager:
             # Insertar detalles
             for detalle in detalles:
                 cursor.execute('''
-                    INSERT INTO detalle_pagos (pago_id, concepto, mes, anio, precio)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO detalle_pagos (pago_id, concepto, mes, anio, precio, cantidad)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 ''', (
                     pago_id, 
                     detalle['concepto'], 
                     detalle.get('mes'), 
                     detalle.get('anio'), 
-                    detalle['precio']
+                    detalle['precio'],
+                    detalle.get('cantidad', 1)
                 ))
             
             conn.commit()
@@ -424,7 +451,7 @@ class DatabaseManager:
         try:
             # Obtener información del pago y usuario
             cursor.execute('''
-                SELECT p.*, u.nombre, u.direccion, u.sesion
+                SELECT p.*, u.nombre, u.direccion, u.sesion, u.vacas, u.inquilinos
                 FROM pagos p
                 JOIN usuarios u ON p.usuario_id = u.id
                 WHERE p.id = ?

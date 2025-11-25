@@ -6,11 +6,16 @@ Pantalla de autenticación con PIN para el sistema de agua potable
 
 import tkinter as tk
 from tkinter import messagebox
-from database import get_db_manager
+from .database import get_db_manager
 
 class LoginWindow:
-    def __init__(self):
-        self.root = tk.Tk()
+    def __init__(self, parent=None):
+        self.parent = parent
+        if parent:
+            self.root = tk.Toplevel(parent)
+        else:
+            self.root = tk.Tk()
+        
         self.root.title("Sistema de Agua Potable - Acceso")
         self.root.geometry("400x300")
         self.root.resizable(False, False)
@@ -28,6 +33,9 @@ class LoginWindow:
         # Configurar eventos
         self.root.bind('<Return>', lambda e: self.verify_pin())
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        if parent:
+            self.root.grab_set()
     
     def center_window(self):
         """Centra la ventana en la pantalla"""
@@ -186,6 +194,7 @@ class LoginWindow:
         
         try:
             db = get_db_manager()
+            
             if db.verificar_pin(pin):
                 self.authenticated = True
                 self.root.destroy()
@@ -202,13 +211,17 @@ class LoginWindow:
     
     def show(self):
         """Muestra la ventana y devuelve si se autenticó correctamente"""
-        self.root.mainloop()
+        if self.parent:
+            self.root.wait_window()
+        else:
+            self.root.mainloop()
+        
         return self.authenticated
 
 
-def authenticate():
+def authenticate(parent=None):
     """Función principal para autenticar al usuario"""
-    login_window = LoginWindow()
+    login_window = LoginWindow(parent)
     return login_window.show()
 
 

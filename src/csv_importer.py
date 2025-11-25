@@ -6,7 +6,7 @@ Utilidad para importar datos desde CSV al sistema de agua potable
 
 import csv
 import os
-from database import get_db_manager
+from .database import get_db_manager
 from tkinter import messagebox
 import tkinter as tk
 from tkinter import filedialog
