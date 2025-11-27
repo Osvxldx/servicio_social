@@ -77,25 +77,14 @@ class DatabaseManager:
                 )
             ''')
             
-            # Tabla de conceptos de cobro
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS conceptos_cobro (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nombre TEXT NOT NULL UNIQUE,
-                    precio REAL NOT NULL,
-                    activo INTEGER DEFAULT 1
-                )
-            ''')
-            
             # Insertar configuración por defecto si no existe
             config_default = [
                 ('cuota_mensual', '70.0'),
                 ('costo_vacas', '0.0'),
                 ('costo_inquilinos', '0.0'),
-                ('costo_cooperacion', '70.0'),
-                ('costo_nueva_toma', '0.0'),
+                ('costo_cooperacion', '100.0'),
+                ('costo_toma_nueva', '500.0'),
                 ('multa_retraso', '100.0'),
-                ('multa_desperdicio', '500.0'),
                 ('multa_inasistencia', '200.0'),
                 ('pin_acceso', '1234'),
                 ('committee_name', 'Comité de Agua Potable'),
@@ -110,20 +99,6 @@ class DatabaseManager:
                     INSERT OR IGNORE INTO configuracion (clave, valor)
                     VALUES (?, ?)
                 ''', (clave, valor))
-            
-            # Insertar conceptos por defecto
-            conceptos_default = [
-                ('Cooperación Anual', 100.0),
-                ('Toma Nueva', 500.0),
-                ('Multa por Inasistencia', 25.0),
-                ('Multa por Desperdicio', 500.0),
-            ]
-            
-            for concepto, precio in conceptos_default:
-                cursor.execute('''
-                    INSERT OR IGNORE INTO conceptos_cobro (nombre, precio)
-                    VALUES (?, ?)
-                ''', (concepto, precio))
             
             conn.commit()
             
@@ -512,85 +487,6 @@ class DatabaseManager:
         """Verifica si el PIN ingresado es correcto"""
         pin_actual = self.obtener_configuracion('pin_acceso')
         return pin_actual == pin
-    
-    # === GESTIÓN DE CONCEPTOS DE COBRO ===
-    
-    def obtener_conceptos_cobro(self, solo_activos: bool = True) -> List[Dict]:
-        """Obtiene todos los conceptos de cobro"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            if solo_activos:
-                cursor.execute('''
-                    SELECT * FROM conceptos_cobro 
-                    WHERE activo = 1 
-                    ORDER BY nombre
-                ''')
-            else:
-                cursor.execute('SELECT * FROM conceptos_cobro ORDER BY nombre')
-            
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
-        finally:
-            conn.close()
-    
-    def crear_concepto_cobro(self, nombre: str, precio: float) -> bool:
-        """Crea un nuevo concepto de cobro"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute('''
-                INSERT INTO conceptos_cobro (nombre, precio)
-                VALUES (?, ?)
-            ''', (nombre, precio))
-            conn.commit()
-            return True
-        except sqlite3.IntegrityError:
-            return False  # Ya existe
-        finally:
-            conn.close()
-    
-    def actualizar_concepto_cobro(self, concepto_id: int, nombre: str = None, 
-                                 precio: float = None, activo: bool = None) -> bool:
-        """Actualiza un concepto de cobro"""
-        campos_actualizar = {}
-        
-        if nombre is not None:
-            campos_actualizar['nombre'] = nombre
-        if precio is not None:
-            campos_actualizar['precio'] = precio
-        if activo is not None:
-            campos_actualizar['activo'] = 1 if activo else 0
-        
-        if not campos_actualizar:
-            return False
-        
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            campos = list(campos_actualizar.keys())
-            valores = list(campos_actualizar.values())
-            valores.append(concepto_id)
-            
-            set_clause = ', '.join([f"{campo} = ?" for campo in campos])
-            
-            cursor.execute(f'''
-                UPDATE conceptos_cobro 
-                SET {set_clause}
-                WHERE id = ?
-            ''', valores)
-            
-            conn.commit()
-            return cursor.rowcount > 0
-        finally:
-            conn.close()
-    
-    def eliminar_concepto_cobro(self, concepto_id: int) -> bool:
-        """Desactiva un concepto de cobro (no lo elimina físicamente)"""
-        return self.actualizar_concepto_cobro(concepto_id, activo=False)
 
 
 # Función de utilidad para obtener una instancia global del gestor

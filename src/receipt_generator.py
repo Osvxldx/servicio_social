@@ -6,104 +6,76 @@ Generador de recibos de pago para el sistema de agua potable
 
 import os
 from datetime import datetime
-from typing import Dict, Optional
-from reportlab.lib.pagesizes import letter, A4
+from typing import Dict, Optional, List
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, mm
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, Frame, PageTemplate, BaseDocTemplate, FrameBreak
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.pdfgen import canvas
 from .database import get_db_manager
 
 class ReceiptGenerator:
     def __init__(self):
         self.styles = getSampleStyleSheet()
-        # Paleta de colores corporativa
         self.colors = {
             'primary': colors.Color(0.05, 0.25, 0.50),    # Azul marino profundo
-            'secondary': colors.Color(0.20, 0.60, 0.85),  # Azul cielo
-            'accent': colors.Color(0.10, 0.60, 0.30),     # Verde éxito
-            'text': colors.Color(0.15, 0.15, 0.15),       # Gris casi negro
-            'gray': colors.Color(0.50, 0.50, 0.50),       # Gris medio
-            'light_gray': colors.Color(0.95, 0.95, 0.95), # Gris muy claro
-            'white': colors.white
+            'text': colors.black,
+            'gray': colors.Color(0.50, 0.50, 0.50),
+            'light_gray': colors.Color(0.90, 0.90, 0.90),
+            'blue_header': colors.Color(0.8, 0.9, 1.0),   # Azul claro para headers
         }
         self.create_custom_styles()
         self.receipts_dir = "recibos"
         self.ensure_directories()
     
     def create_custom_styles(self):
-        """Crea estilos personalizados para un recibo profesional"""
-        # Título Principal
+        """Crea estilos personalizados"""
         self.title_style = ParagraphStyle(
             'ReceiptTitle',
             parent=self.styles['Heading1'],
-            fontSize=22,
-            leading=26,
+            fontSize=12,
+            leading=14,
             alignment=TA_CENTER,
             textColor=self.colors['primary'],
-            fontName='Helvetica-Bold',
-            spaceAfter=10
+            fontName='Helvetica-Bold'
         )
         
-        # Subtítulo
-        self.subtitle_style = ParagraphStyle(
-            'ReceiptSubtitle',
-            parent=self.styles['Heading2'],
-            fontSize=14,
-            leading=18,
-            alignment=TA_CENTER,
-            textColor=self.colors['secondary'],
-            fontName='Helvetica-Bold',
-            spaceAfter=15
-        )
-        
-        # Texto Normal
         self.normal_style = ParagraphStyle(
             'ReceiptNormal',
             parent=self.styles['Normal'],
-            fontSize=10,
-            leading=14,
+            fontSize=7,
+            leading=9,
             alignment=TA_LEFT,
             textColor=self.colors['text'],
             fontName='Helvetica'
         )
         
-        # Etiquetas (Labels)
-        self.label_style = ParagraphStyle(
-            'ReceiptLabel',
+        self.center_style = ParagraphStyle(
+            'ReceiptCenter',
             parent=self.normal_style,
-            fontName='Helvetica-Bold',
-            textColor=self.colors['primary']
+            alignment=TA_CENTER
         )
         
-        # Totales
-        self.total_label_style = ParagraphStyle(
-            'TotalLabel',
+        self.bold_style = ParagraphStyle(
+            'ReceiptBold',
             parent=self.normal_style,
-            fontSize=12,
-            fontName='Helvetica-Bold',
-            alignment=TA_RIGHT,
-            textColor=self.colors['primary']
+            fontName='Helvetica-Bold'
         )
         
-        self.total_value_style = ParagraphStyle(
-            'TotalValue',
+        self.header_style = ParagraphStyle(
+            'TableHeader',
             parent=self.normal_style,
-            fontSize=14,
             fontName='Helvetica-Bold',
-            alignment=TA_RIGHT,
-            textColor=self.colors['accent']
-        )
-        
-        # Pie de página
-        self.footer_style = ParagraphStyle(
-            'ReceiptFooter',
-            parent=self.normal_style,
-            fontSize=8,
             alignment=TA_CENTER,
-            textColor=self.colors['gray']
+            fontSize=6
+        )
+
+        self.small_style = ParagraphStyle(
+            'ReceiptSmall',
+            parent=self.normal_style,
+            fontSize=6,
+            leading=8
         )
 
     def ensure_directories(self):
@@ -119,35 +91,60 @@ class ReceiptGenerator:
                 print(f"No se encontró el pago con ID {pago_id}")
                 return None
             
-            # Nombre de archivo único
+            # Obtener configuración actual para cálculos
+            self.config = {
+                'cuota_mensual': float(db.obtener_configuracion('cuota_mensual') or 70.0),
+            }
+            
+            # Nombre de archivo
             fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
             user_num = pago_data.get('usuario_id', 'SN')
             filename = f"recibo_{user_num}_{fecha}.pdf"
             filepath = os.path.join(self.receipts_dir, filename)
             
-            # Configuración del documento
-            doc = SimpleDocTemplate(
+            # Configurar documento en Portrait (Vertical)
+            doc = BaseDocTemplate(
                 filepath,
                 pagesize=letter,
-                rightMargin=0.75*inch,
-                leftMargin=0.75*inch,
-                topMargin=0.75*inch,
-                bottomMargin=0.75*inch,
-                title=f"Recibo de Pago - {user_num}"
+                rightMargin=0.5*inch,
+                leftMargin=0.5*inch,
+                topMargin=0.5*inch,
+                bottomMargin=0.5*inch
             )
             
-            story = []
+            # Crear frames para dos copias (Arriba y Abajo)
+            page_width, page_height = letter
+            frame_height = (page_height - 1.5*inch) / 2
             
-            # Construcción del contenido
-            story.extend(self.build_header(pago_data))
-            story.append(Spacer(1, 20))
-            story.extend(self.build_customer_info(pago_data))
-            story.append(Spacer(1, 20))
-            story.extend(self.build_payment_details(pago_data))
-            story.append(Spacer(1, 10))
-            story.extend(self.build_totals(pago_data))
-            story.append(Spacer(1, 40))
-            story.extend(self.build_footer(pago_data))
+            frame_top = Frame(
+                doc.leftMargin, 
+                doc.bottomMargin + frame_height + 0.5*inch, 
+                page_width - 1*inch, 
+                frame_height,
+                id='user_copy',
+                showBoundary=0
+            )
+            
+            frame_bottom = Frame(
+                doc.leftMargin, 
+                doc.bottomMargin, 
+                page_width - 1*inch, 
+                frame_height,
+                id='admin_copy',
+                showBoundary=0
+            )
+            
+            template = PageTemplate(id='dual_receipt', frames=[frame_top, frame_bottom])
+            doc.addPageTemplates([template])
+            
+            # Construir contenido
+            content_user = self.build_receipt_content(pago_data, "USUARIO")
+            content_admin = self.build_receipt_content(pago_data, "COMITÉ")
+            
+            story = []
+            story.extend(content_user)
+            story.append(FrameBreak()) # Saltar al siguiente frame (abajo)
+            story.extend(content_admin)
             
             doc.build(story)
             return filepath
@@ -158,249 +155,200 @@ class ReceiptGenerator:
             traceback.print_exc()
             return None
 
-    def build_header(self, pago_data: Dict) -> list:
-        """Encabezado con Logo y Datos de la Empresa"""
-        # Intentar cargar logo
+    def build_receipt_content(self, pago_data: Dict, copy_type: str) -> list:
+        elements = []
+        elements.extend(self.build_header(pago_data, copy_type))
+        elements.extend(self.build_body(pago_data))
+        elements.extend(self.build_footer(copy_type))
+        return elements
+
+    def build_header(self, pago_data: Dict, copy_type: str) -> list:
+        # Logo
         logo_path = os.path.join("assets", "logo.jpg")
         if os.path.exists(logo_path):
-            try:
-                img = Image(logo_path, width=1.2*inch, height=1.2*inch)
-                img.hAlign = 'CENTER'
-            except:
-                img = Paragraph("💧", self.title_style)
+            img = Image(logo_path, width=0.8*inch, height=0.8*inch)
         else:
             img = Paragraph("💧", self.title_style)
-
-        # Datos de la empresa
+            
+        # Info Empresa
         empresa_info = [
-            Paragraph("COMITÉ DE AGUA POTABLE", self.title_style),
-            Paragraph("Sistema de Gestión y Cobranza", self.subtitle_style),
-            Paragraph("Calle Principal S/N, Centro", self.footer_style),
-            Paragraph("Tel: (555) 123-4567 | Email: contacto@agua.com", self.footer_style),
+            Paragraph("COMITÉ DE AGUA POTABLE Y ALCANTARILLADO", self.title_style),
+            Paragraph("DEL BARRIO DE SAN ANTONIO TECAMACHALCO, PUE.", self.title_style),
         ]
         
-        # Tabla Header: Logo | Info
+        # Tabla Header Superior
         data = [[img, empresa_info]]
-        t = Table(data, colWidths=[2*inch, 4.5*inch])
+        t = Table(data, colWidths=[1.0*inch, 5.0*inch])
         t.setStyle(TableStyle([
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ]))
         
-        return [t, Spacer(1, 10), Paragraph("________________________________________________________________________________", self.footer_style)]
-
-    def build_customer_info(self, pago_data: Dict) -> list:
-        """Información del Cliente y del Recibo"""
+        # Info Usuario y Fecha
         fecha_pago = datetime.strptime(pago_data['fecha_pago'], '%Y-%m-%d %H:%M:%S')
         
-        # Columna Izquierda: Datos del Cliente
-        cliente_data = [
-            [Paragraph("CLIENTE:", self.label_style), Paragraph(pago_data['nombre'], self.normal_style)],
-            [Paragraph("DIRECCIÓN:", self.label_style), Paragraph(pago_data['direccion'] or "N/A", self.normal_style)],
-            [Paragraph("N° TOMA:", self.label_style), Paragraph(str(pago_data.get('usuario_id', 'N/A')), self.normal_style)],
-            [Paragraph("EXTRAS:", self.label_style), Paragraph(f"Vacas: {pago_data.get('vacas', 0)} | Inquilinos: {pago_data.get('inquilinos', 0)}", self.normal_style)],
+        # Fila 1: Usuario No | Fecha
+        # Fila 2: Nombre | Folio
+        # Fila 3: Tomas | Direccion
+        
+        user_info = [
+            [
+                Paragraph(f"<b>USUARIO No.</b> {pago_data['usuario_id']}", self.normal_style),
+                "",
+                Paragraph(f"<b>FECHA:</b> {fecha_pago.strftime('%d-%b-%y')}", self.normal_style)
+            ],
+            [
+                Paragraph(f"<b>NOMBRE:</b> {pago_data['nombre']}", self.normal_style),
+                "",
+                Paragraph(f"<b>FOLIO:</b> {str(pago_data['id']).zfill(5)}", ParagraphStyle('RedFolio', parent=self.normal_style, textColor=colors.red, alignment=TA_RIGHT))
+            ],
+            [
+                Paragraph(f"<b>TOMAS:</b> 0 <b>HIDRANTE</b>", self.normal_style),
+                "",
+                Paragraph(f"{pago_data.get('direccion', '')}", self.normal_style)
+            ]
         ]
         
-        # Columna Derecha: Datos del Recibo
-        recibo_data = [
-            [Paragraph("FOLIO:", self.label_style), Paragraph(str(pago_data['id']).zfill(6), self.normal_style)],
-            [Paragraph("FECHA:", self.label_style), Paragraph(fecha_pago.strftime('%d/%m/%Y'), self.normal_style)],
-            [Paragraph("HORA:", self.label_style), Paragraph(fecha_pago.strftime('%H:%M hrs'), self.normal_style)],
-        ]
-        
-        # Tablas internas
-        t_cliente = Table(cliente_data, colWidths=[1*inch, 2.5*inch])
-        t_recibo = Table(recibo_data, colWidths=[0.8*inch, 1.5*inch])
-        
-        # Tabla contenedora
-        main_data = [[t_cliente, t_recibo]]
-        main_table = Table(main_data, colWidths=[4*inch, 3*inch])
-        main_table.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('BOX', (0,0), (-1,-1), 1, self.colors['light_gray']),
-            ('ROUNDEDCORNERS', [10, 10, 10, 10]),
-            ('TOPPADDING', (0,0), (-1,-1), 10),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        t_info = Table(user_info, colWidths=[3.0*inch, 1.0*inch, 3.0*inch])
+        t_info.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LINEBELOW', (0,0), (-1,0), 0.5, colors.black), # Linea bajo usuario/fecha
+            ('LINEBELOW', (0,1), (-1,1), 0.5, colors.black), # Linea bajo nombre/folio
+            ('ALIGN', (2,1), (2,1), 'RIGHT'), # Folio a la derecha
         ]))
         
-        return [main_table]
+        return [t, Spacer(1, 5), t_info, Spacer(1, 5)]
 
-    def build_payment_details(self, pago_data: Dict) -> list:
-        """Tabla de Conceptos"""
-        # Encabezados
-        headers = [
-            Paragraph("CONCEPTO", self.label_style),
-            Paragraph("PERIODO", self.label_style),
-            Paragraph("CANT.", self.label_style),
-            Paragraph("PRECIO", self.label_style),
-            Paragraph("IMPORTE", self.label_style)
-        ]
-        
-        data = [headers]
-        
-        # Procesar detalles
+    def build_body(self, pago_data: Dict) -> list:
         detalles = pago_data.get('detalles', [])
         
-        # Ordenar: Mensualidades primero, luego otros
-        mensualidades = [d for d in detalles if d['mes']]
-        otros = [d for d in detalles if not d['mes']]
-        mensualidades.sort(key=lambda x: x['mes'])
+        # Cálculos
+        importe_cuota = sum(d['precio'] for d in detalles if 'Mensualidad' in d['concepto'])
+        importe_vacas = sum(d['precio'] for d in detalles if 'Vacas' in d['concepto'])
+        importe_inquilinos = sum(d['precio'] for d in detalles if 'Inquilinos' in d['concepto'])
+        multa_inasistencia = sum(d['precio'] for d in detalles if 'Inasistencia' in d['concepto'])
+        cooperaciones = sum(d['precio'] for d in detalles if 'Cooperación' in d['concepto'])
+        toma_nueva = sum(d['precio'] for d in detalles if 'Toma Nueva' in d['concepto'])
         
-        # Agregar filas
-        for d in mensualidades:
-            mes_nombre = self.get_month_name(d['mes'])
-            concepto = f"Servicio de Agua - {mes_nombre}"
-            periodo = str(d['anio'])
-            data.append([
-                Paragraph(concepto, self.normal_style),
-                Paragraph(periodo, self.normal_style),
-                str(d['cantidad']),
-                f"${d['precio']:.2f}",
-                f"${d['precio'] * d['cantidad']:.2f}"
-            ])
-            
-        for d in otros:
-            concepto = d['concepto']
-            periodo = "-"
-            data.append([
-                Paragraph(concepto, self.normal_style),
-                Paragraph(periodo, self.normal_style),
-                str(d['cantidad']),
-                f"${d['precio']:.2f}",
-                f"${d['precio'] * d['cantidad']:.2f}"
-            ])
-            
-        # Si no hay detalles (caso raro)
-        if len(data) == 1:
-            data.append(["Sin detalles", "-", "0", "$0.00", "$0.00"])
+        meses_pagados = [d for d in detalles if d['mes'] and 'Mensualidad' in d['concepto']]
+        meses_pagados.sort(key=lambda x: x['mes'])
+        num_meses = len(meses_pagados)
+        
+        # Texto de meses
+        if meses_pagados:
+            first = self.get_month_name(meses_pagados[0]['mes'])
+            last = self.get_month_name(meses_pagados[-1]['mes'])
+            year = meses_pagados[0]['anio']
+            if len(meses_pagados) == 1:
+                periodo_txt = f"{first.upper()} DE {year}"
+            else:
+                periodo_txt = f"{first.upper()} A {last.upper()} DE {year}"
+        else:
+            periodo_txt = ""
 
-        # Crear Tabla
-        t = Table(data, colWidths=[3*inch, 1.2*inch, 0.8*inch, 1*inch, 1*inch])
-        
-        # Estilos de tabla
-        estilos = [
-            ('BACKGROUND', (0,0), (-1,0), self.colors['light_gray']),
-            ('LINEBELOW', (0,0), (-1,0), 1, self.colors['primary']),
-            ('ALIGN', (2,1), (-1,-1), 'CENTER'), # Cantidad centrada
-            ('ALIGN', (3,1), (-1,-1), 'RIGHT'),  # Precio derecha
-            ('ALIGN', (4,1), (-1,-1), 'RIGHT'),  # Importe derecha
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('INNERGRID', (0,0), (-1,-1), 0.25, self.colors['light_gray']),
-            ('BOX', (0,0), (-1,-1), 0.5, self.colors['gray']),
-            ('ROWBACKGROUNDS', (0,1), (-1,-1), [self.colors['white'], colors.Color(0.98, 0.99, 1.0)])
-        ]
-        t.setStyle(TableStyle(estilos))
-        
-        return [t]
-
-    def build_totals(self, pago_data: Dict) -> list:
-        """Sección de Totales"""
-        total = pago_data.get('total', 0.0)
-        
-        # Convertir total a texto (opcional, aquí simple)
-        total_text = f"${total:,.2f}"
-        
-        data = [
-            [Paragraph("TOTAL A PAGAR:", self.total_label_style), Paragraph(total_text, self.total_value_style)]
+        # Definición de Columnas y Anchos
+        col_widths = [
+            1.8*inch, # Concepto
+            0.7*inch, # Cuota x Toma
+            0.7*inch, # Forma Pago
+            0.5*inch, # Vacas
+            0.6*inch, # Inquilinos
+            0.7*inch, # Inasistencia
+            0.8*inch, # Cooperaciones
+            0.7*inch, # Toma Nueva
+            0.8*inch  # Total
         ]
         
-        t = Table(data, colWidths=[5.5*inch, 1.5*inch])
+        # Headers
+        headers = [
+            Paragraph("CONCEPTO", self.header_style),
+            Paragraph("CUOTA X<br/>TOMA", self.header_style),
+            Paragraph("FORMA DE<br/>PAGO<br/>Mensual", self.header_style),
+            Paragraph("VACAS", self.header_style),
+            Paragraph("INQUILINOS", self.header_style),
+            Paragraph("INASISTENCIA", self.header_style),
+            Paragraph("COOPERACION<br/>ES", self.header_style),
+            Paragraph("TOMA NUEVA", self.header_style),
+            Paragraph("TOTAL A<br/>PAGAR", self.header_style)
+        ]
+        
+        # Fila 1: Precios Unitarios / Cantidades
+        row1 = [
+            "", # Concepto vacio
+            Paragraph(f"${self.config['cuota_mensual']:.2f}", self.center_style),
+            Paragraph(str(num_meses), self.center_style),
+            Paragraph(str(pago_data.get('vacas', 0)), self.center_style),
+            Paragraph(str(pago_data.get('inquilinos', 0)), self.center_style),
+            "", "", "", "" # Resto vacio
+        ]
+        
+        # Fila 2: Importes
+        row2 = [
+            Paragraph("PAGO POR BOMBEO Y DISTRIBUCION<br/>DE AGUA POTABLE", self.bold_style),
+            Paragraph(f"${importe_cuota:.2f}", self.center_style),
+            Paragraph(f"${importe_cuota:.2f}", self.center_style), # Repite importe en forma pago? Segun imagen parece que si o vacio. Pondremos el total de cuota.
+            Paragraph(f"${importe_vacas:.2f}", self.center_style),
+            Paragraph(f"${importe_inquilinos:.2f}", self.center_style),
+            Paragraph(f"${multa_inasistencia:.2f}", self.center_style),
+            Paragraph(f"${cooperaciones:.2f}", self.center_style),
+            Paragraph(f"${toma_nueva:.2f}", self.center_style),
+            Paragraph(f"${pago_data['total']:.2f}", self.bold_style)
+        ]
+        
+        # Fila 3: Periodo
+        row3 = [
+            Paragraph(f"De: {periodo_txt}", self.normal_style),
+            "", "", "", "", "", "", "", ""
+        ]
+        
+        # Fila Total (Footer de tabla)
+        row_total = [
+            "", "", "", "", "", "", 
+            Paragraph("TOTAL", self.bold_style),
+            "",
+            Paragraph(f"${pago_data['total']:.2f}", self.bold_style)
+        ]
+        
+        data = [headers, row1, row2, row3, row_total]
+        
+        t = Table(data, colWidths=col_widths)
         t.setStyle(TableStyle([
-            ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+            ('GRID', (0,0), (-1,-2), 0.5, colors.black), # Grid completo excepto ultima fila
+            ('BOX', (0,0), (-1,-1), 1, colors.black), # Borde exterior
+            ('BACKGROUND', (0,0), (-1,0), self.colors['blue_header']), # Header azul
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('LINEABOVE', (0,0), (-1,-1), 1, self.colors['primary']),
-            ('TOPPADDING', (0,0), (-1,-1), 12),
+            ('ALIGN', (0,2), (0,3), 'LEFT'), # Concepto alineado izquierda
+            ('SPAN', (0,1), (0,1)), # Span celda vacia concepto row1? No, mejor dejarla
+            ('LINEBELOW', (0,3), (-1,3), 1, colors.black), # Linea antes del total
+            ('ALIGN', (-1,-1), (-1,-1), 'RIGHT'), # Total alineado derecha
         ]))
         
         return [t]
 
-    def build_footer(self, pago_data: Dict) -> list:
-        """Firmas y Mensaje Final"""
-        observaciones = pago_data.get('observaciones', '')
-        
-        elements = []
-        
-        if observaciones:
-            elements.append(Paragraph(f"<b>Observaciones:</b> {observaciones}", self.normal_style))
-            elements.append(Spacer(1, 20))
-            
-        # Área de firmas
+    def build_footer(self, copy_type: str) -> list:
         firma_data = [
-            ["__________________________", "__________________________"],
-            ["Firma de Conformidad", "Firma del Cobrador"]
+            [Spacer(1, 20), Spacer(1, 20)],
+            ["_______________________", "_______________________"],
+            ["CARLOS LOPEZ SANTOS", "SELLO"],
+            [
+                Paragraph("NOTA: 1.- ES NECESARIO CONSERVAR ESTE COMPROBANTE, DEBERA PRESENTARLO EN SU PROXIMO PAGO PARA CUALQUIER ACLARACIÓN.<br/>2.- EL PAGO DE ESTE RECIBO NO TE LIBERA DE DEUDAS ANTERIORES.", self.small_style),
+                Paragraph(copy_type, ParagraphStyle('CopyType', parent=self.bold_style, alignment=TA_RIGHT, textColor=colors.red))
+            ]
         ]
         
-        t_firmas = Table(firma_data, colWidths=[3.5*inch, 3.5*inch])
-        t_firmas.setStyle(TableStyle([
+        t = Table(firma_data, colWidths=[4.0*inch, 3.0*inch])
+        t.setStyle(TableStyle([
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('FONTNAME', (0,1), (-1,-1), 'Helvetica-Oblique'),
-            ('FONTSIZE', (0,1), (-1,-1), 8),
-            ('TEXTCOLOR', (0,0), (-1,-1), self.colors['gray']),
+            ('ALIGN', (0,3), (0,3), 'LEFT'), # Nota izquierda
+            ('ALIGN', (1,3), (1,3), 'RIGHT'), # Tipo copia derecha
         ]))
         
-        elements.append(t_firmas)
-        elements.append(Spacer(1, 15))
-        elements.append(Paragraph("¡Gracias por su pago puntual!", self.subtitle_style))
-        
-        return elements
+        return [Spacer(1, 10), t]
 
     def get_month_name(self, month_num: int) -> str:
         months = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
         return months[month_num] if 1 <= month_num <= 12 else str(month_num)
-    
-    def print_receipt(self, filepath: str) -> bool:
-        try:
-            if os.name == 'nt': # Windows
-                os.startfile(filepath, "print")
-            else:
-                # Linux/Mac (comando genérico, ajustar según necesidad)
-                import subprocess
-                subprocess.run(['lp', filepath])
-            return True
-        except Exception as e:
-            print(f"Error al imprimir: {e}")
-            return False
-
-
-def main():
-    """Función de prueba"""
-    generator = ReceiptGenerator()
-    
-    # Crear un pago de prueba
-    db = get_db_manager()
-    
-    # Verificar si hay usuarios para hacer una prueba
-    usuarios = db.obtener_todos_usuarios()
-    if not usuarios:
-        print("No hay usuarios en la base de datos para hacer prueba")
-        return
-    
-    # Usar el primer usuario
-    usuario = usuarios[0]
-    
-    # Registrar un pago de prueba
-    pago_id = db.registrar_pago(
-        usuario_id=usuario['id'],
-        meses_pagados=[1, 2, 3],
-        anio=2024,
-        conceptos_adicionales=[("Cooperación Anual", 100.0)],
-        observaciones="Pago de prueba del sistema"
-    )
-    
-    if pago_id > 0:
-        print(f"Pago de prueba registrado con ID: {pago_id}")
-        
-        # Generar recibo
-        pdf_path = generator.generate_receipt(pago_id)
-        if pdf_path:
-            print(f"Recibo generado: {pdf_path}")
-        else:
-            print("Error al generar recibo")
-    else:
-        print("Error al registrar pago de prueba")
-
-
-if __name__ == "__main__":
-    main()

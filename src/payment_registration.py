@@ -1,696 +1,457 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Módulo de registro de pagos para el sistema de agua potable
+Módulo de registro de pagos
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+from datetime import datetime, timedelta
+import calendar
 from .database import get_db_manager
-from datetime import datetime
 from .receipt_generator import ReceiptGenerator
 import os
 
 class PaymentRegistrationWindow:
-    _instance = None
-
-    def __new__(cls, parent=None):
-        if cls._instance is None:
-            cls._instance = super(PaymentRegistrationWindow, cls).__new__(cls)
-            cls._instance.initialized = False
-        return cls._instance
-
     def __init__(self, parent=None):
-        if self.initialized:
-            try:
-                if self.root.winfo_exists():
-                    if self.root.state() == 'iconic':
-                        self.root.deiconify()
-                    self.root.lift()
-                    self.root.focus_force()
-                    return
-            except (AttributeError, tk.TclError):
-                self.initialized = False
-                PaymentRegistrationWindow._instance = None
-                self.__init__(parent)
-            return
-
-        self.initialized = True
-        
-        # Crear ventana principal o usar la proporcionada
         if parent:
             self.root = tk.Toplevel(parent)
         else:
             self.root = tk.Tk()
-        
+            
         self.root.title("Registro de Pagos")
-        self.root.geometry("1200x800")
-        self.root.resizable(True, True)
+        self.root.geometry("1200x700")
         self.root.state('zoomed') if hasattr(self.root, 'state') else None
         
-        # Configurar evento de cierre
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.db = get_db_manager()
+        self.receipt_gen = ReceiptGenerator()
         
-        # Variables
+        # Variables de estado
         self.current_user = None
-        self.cart = [] # Lista de diccionarios {'concepto', 'precio', 'mes', 'anio', 'tipo'}
+        self.selected_months = set()
+        self.cart_items = []
         self.total_amount = 0.0
         
-        # Configurar la interfaz
+        # Variables de configuración
+        self.load_config_values()
+        
         self.setup_ui()
-    
-    def on_close(self):
-        """Maneja el cierre de la ventana"""
-        PaymentRegistrationWindow._instance = None
-        self.root.destroy()
+        
+    def load_config_values(self):
+        """Carga valores de configuración necesarios"""
+        self.monthly_fee = float(self.db.obtener_configuracion('cuota_mensual') or 70.0)
+        self.cost_vacas = float(self.db.obtener_configuracion('costo_vacas') or 0.0)
+        self.cost_inquilinos = float(self.db.obtener_configuracion('costo_inquilinos') or 0.0)
+        self.cost_cooperacion = float(self.db.obtener_configuracion('costo_cooperacion') or 100.0)
+        self.cost_toma_nueva = float(self.db.obtener_configuracion('costo_toma_nueva') or 500.0)
+        self.fine_delay = float(self.db.obtener_configuracion('multa_retraso') or 100.0) # Esto es el TOTAL si es tarde ($100)
+        self.fine_absence = float(self.db.obtener_configuracion('multa_inasistencia') or 200.0)
 
     def setup_ui(self):
-        """Configura la interfaz de usuario"""
-        # Frame principal
-        main_frame = tk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Layout principal: Izquierda (Búsqueda/Usuario), Centro (Meses/Extras), Derecha (Resumen)
+        main_container = tk.Frame(self.root)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Título
-        title_label = tk.Label(
-            main_frame,
-            text="Registro de Pagos",
-            font=('Arial', 16, 'bold'),
-            fg='#2c3e50'
-        )
-        title_label.pack(pady=(0, 10))
+        # Panel Izquierdo
+        left_panel = tk.Frame(main_container, width=300)
+        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         
-        # Frame superior: Búsqueda de usuario
-        search_frame = tk.LabelFrame(main_frame, text="Buscar Usuario", font=('Arial', 12, 'bold'))
-        search_frame.pack(fill=tk.X, pady=(0, 10))
+        self.create_search_panel(left_panel)
+        self.create_user_info_panel(left_panel)
         
-        self.create_search_panel(search_frame)
+        # Panel Central
+        center_panel = tk.Frame(main_container)
+        center_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
         
-        # Frame central: Información del usuario y selección de pagos
-        content_frame = tk.Frame(main_frame)
-        content_frame.pack(fill=tk.BOTH, expand=True)
+        self.create_months_panel(center_panel)
+        self.create_extras_panel(center_panel)
         
-        # Columna izquierda: Info usuario y meses
-        left_col = tk.Frame(content_frame)
-        left_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        # Panel Derecho
+        right_panel = tk.Frame(main_container, width=350)
+        right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
         
-        # Info Usuario
-        user_info_frame = tk.LabelFrame(left_col, text="Información del Usuario", font=('Arial', 12, 'bold'))
-        user_info_frame.pack(fill=tk.X, pady=(0, 10))
-        self.create_user_info_panel(user_info_frame)
-        
-        # Selección de Meses
-        months_frame = tk.LabelFrame(left_col, text="Selección de Meses", font=('Arial', 12, 'bold'))
-        months_frame.pack(fill=tk.BOTH, expand=True)
-        self.create_months_panel(months_frame)
-        
-        # Columna derecha: Conceptos adicionales y resumen
-        right_col = tk.Frame(content_frame)
-        right_col.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
-        
-        # Conceptos Adicionales
-        concepts_frame = tk.LabelFrame(right_col, text="Conceptos Adicionales", font=('Arial', 12, 'bold'))
-        concepts_frame.pack(fill=tk.X, pady=(0, 10))
-        self.create_concepts_panel(concepts_frame)
-        
-        # Resumen de Pago
-        summary_frame = tk.LabelFrame(right_col, text="Detalle de Pago", font=('Arial', 12, 'bold'))
-        summary_frame.pack(fill=tk.BOTH, expand=True)
-        self.create_summary_panel(summary_frame)
-    
+        self.create_summary_panel(right_panel)
+
     def create_search_panel(self, parent):
-        """Crea el panel de búsqueda"""
-        frame = tk.Frame(parent)
-        frame.pack(fill=tk.X, padx=10, pady=10)
+        frame = tk.LabelFrame(parent, text="Buscar Usuario", font=('Arial', 10, 'bold'))
+        frame.pack(fill=tk.X, pady=(0, 10))
         
-        # Buscar por ID
-        tk.Label(frame, text="Buscar por ID:", font=('Arial', 11)).pack(side=tk.LEFT)
+        # Búsqueda por nombre o ID
+        tk.Label(frame, text="Nombre o ID:").pack(anchor='w', padx=5)
+        self.search_var = tk.StringVar()
+        self.search_var.trace('w', self.on_search_change)
+        tk.Entry(frame, textvariable=self.search_var).pack(fill=tk.X, padx=5, pady=(0, 5))
         
-        self.search_id_var = tk.StringVar()
-        search_id_entry = tk.Entry(
-            frame,
-            textvariable=self.search_id_var,
-            width=10,
-            font=('Arial', 12)
-        )
-        search_id_entry.pack(side=tk.LEFT, padx=(5, 15))
-        search_id_entry.bind('<Return>', self.search_user_by_id)
-        
-        btn_search_id = tk.Button(
-            frame,
-            text="Buscar",
-            command=self.search_user_by_id,
-            bg='#3498db',
-            fg='white'
-        )
-        btn_search_id.pack(side=tk.LEFT, padx=(0, 20))
-        
-        # Buscar por Nombre (Autocomplete)
-        tk.Label(frame, text="Buscar por Nombre:", font=('Arial', 11)).pack(side=tk.LEFT)
-        
-        self.search_name_var = tk.StringVar()
-        self.search_name_combo = ttk.Combobox(
-            frame,
-            textvariable=self.search_name_var,
-            width=40,
-            font=('Arial', 11)
-        )
-        self.search_name_combo.pack(side=tk.LEFT, padx=(5, 10))
-        self.search_name_combo.bind('<KeyRelease>', self.on_name_search_change)
-        self.search_name_combo.bind('<<ComboboxSelected>>', self.on_name_selected)
-    
+        # Lista de resultados
+        self.results_list = tk.Listbox(frame, height=6)
+        self.results_list.pack(fill=tk.X, padx=5, pady=5)
+        self.results_list.bind('<<ListboxSelect>>', self.on_user_select)
+
     def create_user_info_panel(self, parent):
-        """Crea el panel de información del usuario"""
-        frame = tk.Frame(parent)
-        frame.pack(fill=tk.X, padx=10, pady=10)
+        self.info_frame = tk.LabelFrame(parent, text="Información del Usuario", font=('Arial', 10, 'bold'))
+        self.info_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Grid layout
-        labels = [
-            ("ID:", "user_id_lbl"),
-            ("Nombre:", "user_name_lbl"),
-            ("Sesión:", "user_session_lbl"),
-            ("Dirección:", "user_address_lbl"),
-            ("Vacas:", "user_vacas_lbl"),
-            ("Inquilinos:", "user_inquilinos_lbl"),
-            ("Estado:", "user_status_lbl")
-        ]
+        self.lbl_nombre = tk.Label(self.info_frame, text="Seleccione un usuario", font=('Arial', 12, 'bold'), wraplength=280)
+        self.lbl_nombre.pack(pady=10)
         
-        self.user_info_widgets = {}
+        details_frame = tk.Frame(self.info_frame)
+        details_frame.pack(fill=tk.X, padx=5)
         
-        for i, (text, key) in enumerate(labels):
-            row = i // 2
-            col = (i % 2) * 2
-            
-            tk.Label(
-                frame, 
-                text=text, 
-                font=('Arial', 10, 'bold'),
-                fg='#7f8c8d'
-            ).grid(row=row, column=col, sticky='w', padx=5, pady=5)
-            
-            lbl = tk.Label(
-                frame, 
-                text="-", 
-                font=('Arial', 11),
-                fg='#2c3e50'
-            )
-            lbl.grid(row=row, column=col+1, sticky='w', padx=(0, 20), pady=5)
-            self.user_info_widgets[key] = lbl
-    
+        self.lbl_id = tk.Label(details_frame, text="ID: -")
+        self.lbl_id.pack(anchor='w')
+        
+        self.lbl_direccion = tk.Label(details_frame, text="Dirección: -", wraplength=280, justify=tk.LEFT)
+        self.lbl_direccion.pack(anchor='w')
+        
+        self.lbl_vacas = tk.Label(details_frame, text="Vacas: 0")
+        self.lbl_vacas.pack(anchor='w')
+        
+        self.lbl_inquilinos = tk.Label(details_frame, text="Inquilinos: 0")
+        self.lbl_inquilinos.pack(anchor='w')
+        
+        # Historial reciente
+        tk.Label(self.info_frame, text="\nÚltimos Pagos:", font=('Arial', 9, 'bold')).pack(anchor='w', padx=5)
+        self.history_list = tk.Listbox(self.info_frame, height=8, bg='#f0f0f0')
+        self.history_list.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
     def create_months_panel(self, parent):
-        """Crea el panel de selección de meses"""
-        frame = tk.Frame(parent)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        frame = tk.LabelFrame(parent, text="Selección de Meses", font=('Arial', 10, 'bold'))
+        frame.pack(fill=tk.X, pady=(0, 10))
         
         # Selector de año
         year_frame = tk.Frame(frame)
-        year_frame.pack(fill=tk.X, pady=(0, 10))
+        year_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        tk.Label(year_frame, text="Año:", font=('Arial', 11, 'bold')).pack(side=tk.LEFT)
-        
-        current_year = datetime.now().year
-        self.year_var = tk.StringVar(value=str(current_year))
-        year_spin = ttk.Spinbox(
-            year_frame,
-            from_=2000,
-            to=2100,
-            textvariable=self.year_var,
-            width=8,
-            font=('Arial', 11)
-        )
+        tk.Label(year_frame, text="Año:").pack(side=tk.LEFT)
+        self.year_var = tk.StringVar(value=str(datetime.now().year))
+        year_spin = ttk.Spinbox(year_frame, from_=2020, to=2030, textvariable=self.year_var, width=5)
         year_spin.pack(side=tk.LEFT, padx=5)
-        year_spin.bind('<ButtonRelease-1>', self.update_months_status)
-        year_spin.bind('<KeyRelease>', self.update_months_status) # También al escribir
+        year_spin.bind('<ButtonRelease-1>', self.refresh_months_grid)
+        
+        # Botón Año Completo
+        tk.Button(year_frame, text="Seleccionar Año Completo", command=self.select_full_year, 
+                 bg='#3498db', fg='white').pack(side=tk.RIGHT)
         
         # Grid de meses
-        months_grid = tk.Frame(frame)
-        months_grid.pack(fill=tk.BOTH, expand=True)
-        
-        self.meses_nombres = [
-            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-        ]
-        
-        self.month_vars = []
-        self.month_checks = []
-        
-        for i, mes in enumerate(self.meses_nombres):
-            var = tk.BooleanVar()
-            self.month_vars.append(var)
-            
-            chk = tk.Checkbutton(
-                months_grid,
-                text=mes,
-                variable=var,
-                font=('Arial', 11),
-                state='disabled'
-            )
-            chk.grid(row=i//3, column=i%3, sticky='w', padx=10, pady=5)
-            self.month_checks.append(chk)
-            
-        # Botón Agregar Meses
-        add_months_btn = tk.Button(
-            frame,
-            text="Agregar Meses Seleccionados",
-            command=self.add_months_to_cart,
-            bg='#2980b9',
-            fg='white',
-            font=('Arial', 10, 'bold')
-        )
-        add_months_btn.pack(fill=tk.X, pady=(10, 0))
+        self.months_frame = tk.Frame(frame)
+        self.months_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.month_buttons = {}
+        self.refresh_months_grid()
 
-    def create_concepts_panel(self, parent):
-        """Crea el panel de conceptos adicionales"""
-        frame = tk.Frame(parent)
-        frame.pack(fill=tk.X, padx=10, pady=10)
+    def create_extras_panel(self, parent):
+        frame = tk.LabelFrame(parent, text="Cargos Adicionales", font=('Arial', 10, 'bold'))
+        frame.pack(fill=tk.X, pady=(0, 10))
         
-        # Selector de concepto
-        tk.Label(frame, text="Concepto:", font=('Arial', 10)).pack(anchor='w')
+        # Checkboxes para extras
+        self.var_cooperacion = tk.BooleanVar()
+        self.var_toma_nueva = tk.BooleanVar()
+        self.var_inasistencia = tk.BooleanVar()
         
-        self.concept_combo = ttk.Combobox(
-            frame,
-            state="readonly",
-            font=('Arial', 11)
-        )
-        self.concept_combo.pack(fill=tk.X, pady=(0, 5))
+        tk.Checkbutton(frame, text=f"Cooperación (${self.cost_cooperacion:.2f})", 
+                      variable=self.var_cooperacion, command=self.update_cart).pack(anchor='w', padx=10, pady=2)
         
-        # Cargar conceptos
-        self.load_concepts()
+        tk.Checkbutton(frame, text=f"Toma Nueva (${self.cost_toma_nueva:.2f})", 
+                      variable=self.var_toma_nueva, command=self.update_cart).pack(anchor='w', padx=10, pady=2)
         
-        # Botón agregar
-        add_btn = tk.Button(
-            frame,
-            text="Agregar Concepto",
-            command=self.add_concept,
-            bg='#f39c12',
-            fg='white'
-        )
-        add_btn.pack(fill=tk.X, pady=(5, 10))
-    
+        tk.Checkbutton(frame, text=f"Multa por Inasistencia (${self.fine_absence:.2f})", 
+                      variable=self.var_inasistencia, command=self.update_cart).pack(anchor='w', padx=10, pady=2)
+
     def create_summary_panel(self, parent):
-        """Crea el panel de resumen"""
-        frame = tk.Frame(parent)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        frame = tk.LabelFrame(parent, text="Resumen de Pago", font=('Arial', 12, 'bold'))
+        frame.pack(fill=tk.BOTH, expand=True)
         
-        # Lista de detalles (meses y conceptos)
-        self.payment_details_list = tk.Listbox(frame, height=10, font=('Arial', 10))
-        self.payment_details_list.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        
-        # Botón eliminar item
-        del_btn = tk.Button(
-            frame,
-            text="Eliminar Item Seleccionado",
-            command=self.remove_item_from_cart,
-            bg='#e74c3c',
-            fg='white',
-            font=('Arial', 9)
-        )
-        del_btn.pack(fill=tk.X, pady=(0, 10))
-        
-        # Botón Generar Multa por Desperdicio
-        fine_btn = tk.Button(
-            frame,
-            text="Generar Multa por Desperdicio",
-            command=self.generate_fine,
-            bg='#c0392b',
-            fg='white',
-            font=('Arial', 9, 'bold')
-        )
-        fine_btn.pack(fill=tk.X, pady=(0, 10))
-        
-        # Botón Generar Multa por Inasistencia
-        absence_fine_btn = tk.Button(
-            frame,
-            text="Generar Multa por Inasistencia",
-            command=self.generate_absence_fine,
-            bg='#d35400',
-            fg='white',
-            font=('Arial', 9, 'bold')
-        )
-        absence_fine_btn.pack(fill=tk.X, pady=(0, 10))
+        # Lista de items en el carrito
+        self.cart_tree = ttk.Treeview(frame, columns=('Concepto', 'Importe'), show='headings', height=15)
+        self.cart_tree.heading('Concepto', text='Concepto')
+        self.cart_tree.heading('Importe', text='Importe')
+        self.cart_tree.column('Concepto', width=200)
+        self.cart_tree.column('Importe', width=80, anchor='e')
+        self.cart_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Total
-        total_frame = tk.Frame(frame)
-        total_frame.pack(fill=tk.X, pady=10)
+        total_frame = tk.Frame(frame, bg='#ecf0f1')
+        total_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        tk.Label(
-            total_frame,
-            text="Total a Pagar:",
-            font=('Arial', 14, 'bold'),
-            fg='#2c3e50'
-        ).pack(side=tk.LEFT)
-        
-        self.total_label = tk.Label(
-            total_frame,
-            font=('Arial', 20, 'bold'),
-            fg='#27ae60'
-        )
-        self.total_label.pack(side=tk.RIGHT)
+        tk.Label(total_frame, text="TOTAL A PAGAR:", font=('Arial', 14, 'bold'), bg='#ecf0f1').pack(side=tk.LEFT, padx=10, pady=10)
+        self.lbl_total = tk.Label(total_frame, text="$0.00", font=('Arial', 16, 'bold'), fg='#e74c3c', bg='#ecf0f1')
+        self.lbl_total.pack(side=tk.RIGHT, padx=10)
         
         # Botón Pagar
-        self.pay_btn = tk.Button(
-            frame,
-            text="REGISTRAR PAGO",
-            command=self.process_payment,
-            bg='#27ae60',
-            fg='white',
-            font=('Arial', 14, 'bold'),
-            height=2,
-            state='disabled'
-        )
-        self.pay_btn.pack(fill=tk.X, pady=(10, 0))
-    
-    def load_concepts(self):
-        """Carga los conceptos de cobro disponibles"""
-        try:
-            db = get_db_manager()
-            conceptos = db.obtener_conceptos_cobro(solo_activos=True)
-            self.conceptos_map = {c['nombre']: c['precio'] for c in conceptos}
-            self.concept_combo['values'] = list(self.conceptos_map.keys())
-        except Exception as e:
-            print(f"Error al cargar conceptos: {e}")
-    
-    def search_user_by_id(self, event=None):
-        """Busca un usuario por ID"""
-        user_id = self.search_id_var.get().strip()
-        if not user_id:
-            return
+        self.btn_pagar = tk.Button(frame, text="REGISTRAR PAGO", command=self.process_payment,
+                                 bg='#2ecc71', fg='white', font=('Arial', 14, 'bold'), state='disabled')
+        self.btn_pagar.pack(fill=tk.X, padx=10, pady=10)
+
+    # === LÓGICA ===
+
+    def on_search_change(self, *args):
+        search_term = self.search_var.get().strip()
+        self.results_list.delete(0, tk.END)
         
-        try:
-            db = get_db_manager()
-            user = db.buscar_usuario_por_id(int(user_id))
-            
+        if not search_term:
+            return
+
+        # Búsqueda por ID si es número
+        if search_term.isdigit():
+            user = self.db.buscar_usuario_por_id(int(search_term))
             if user:
-                self.load_user(user)
-            else:
-                messagebox.showwarning("No encontrado", "Usuario no encontrado")
-                self.clear_user()
-        except ValueError:
-            messagebox.showwarning("Error", "ID inválido")
-    
-    def on_name_search_change(self, event):
-        """Maneja el cambio de texto en búsqueda por nombre"""
-        name = self.search_name_var.get()
-        if len(name) < 3:
-            return
-            
-        db = get_db_manager()
-        users = db.buscar_usuarios_por_nombre(name)
-        self.search_name_combo['values'] = [f"{u['id']} - {u['nombre']}" for u in users]
+                self.results_list.insert(tk.END, f"{user['id']} - {user['nombre']}")
         
-    def on_name_selected(self, event):
-        """Maneja la selección del combobox de nombre"""
-        selection = self.search_name_var.get()
+        # Búsqueda por nombre (siempre)
+        if len(search_term) >= 2:
+            users = self.db.buscar_usuarios_por_nombre(search_term)
+            for user in users:
+                # Evitar duplicados si ya salió por ID
+                item = f"{user['id']} - {user['nombre']}"
+                if item not in self.results_list.get(0, tk.END):
+                    self.results_list.insert(tk.END, item)
+
+    def on_user_select(self, event):
+        selection = self.results_list.curselection()
         if not selection:
             return
             
-        try:
-            user_id = int(selection.split(' - ')[0])
-            db = get_db_manager()
-            user = db.buscar_usuario_por_id(user_id)
-            if user:
-                self.load_user(user)
-        except (ValueError, IndexError):
-            pass
+        user_str = self.results_list.get(selection[0])
+        user_id = int(user_str.split(' - ')[0])
+        self.current_user = self.db.buscar_usuario_por_id(user_id)
+        
+        if self.current_user:
+            self.update_user_display()
+            self.refresh_months_grid()
+            self.reset_selections()
 
-    def load_user(self, user):
-        """Carga los datos del usuario en la interfaz"""
-        self.current_user = user
+    def update_user_display(self):
+        u = self.current_user
+        self.lbl_nombre.config(text=u['nombre'])
+        self.lbl_id.config(text=f"ID: {u['id']}")
+        self.lbl_direccion.config(text=f"Dirección: {u['direccion']}")
+        self.lbl_vacas.config(text=f"Vacas: {u['vacas']}")
+        self.lbl_inquilinos.config(text=f"Inquilinos: {u['inquilinos']}")
         
-        # Actualizar labels
-        self.user_info_widgets['user_id_lbl'].config(text=str(user['id']))
-        self.user_info_widgets['user_name_lbl'].config(text=user['nombre'])
-        self.user_info_widgets['user_session_lbl'].config(text=str(user['sesion']))
-        self.user_info_widgets['user_address_lbl'].config(text=user['direccion'] or "-")
-        self.user_info_widgets['user_vacas_lbl'].config(text=str(user.get('vacas', 0)))
-        self.user_info_widgets['user_inquilinos_lbl'].config(text=str(user.get('inquilinos', 0)))
-        self.user_info_widgets['user_status_lbl'].config(text=user['estado'])
-        
-        # Habilitar controles
-        self.pay_btn.config(state='normal')
-        
-        # Limpiar selección previa
-        self.clear_payment_selection()
-        
-        # Actualizar estado de meses
-        self.update_months_status()
-    
-    def clear_user(self):
-        """Limpia los datos del usuario"""
-        self.current_user = None
-        for lbl in self.user_info_widgets.values():
-            lbl.config(text="-")
-        
-        self.pay_btn.config(state='disabled')
-        self.clear_payment_selection()
-        
-        # Deshabilitar meses
-        for chk in self.month_checks:
-            chk.config(state='disabled')
+        # Cargar historial
+        self.history_list.delete(0, tk.END)
+        pagos = self.db.obtener_pagos_usuario(u['id'])
+        for p in pagos[:5]: # Últimos 5
+            fecha = p['fecha_pago'].split()[0]
+            self.history_list.insert(tk.END, f"{fecha} - ${p['total']:.2f}")
+
+    def refresh_months_grid(self, event=None):
+        # Limpiar grid
+        for widget in self.months_frame.winfo_children():
+            widget.destroy()
             
-    def clear_payment_selection(self):
-        """Limpia la selección de pagos"""
-        self.cart = []
-        self.update_cart_display()
-        
-        # Limpiar checkboxes
-        for var in self.month_vars:
-            var.set(False)
-            
-    def update_months_status(self, event=None):
-        """Actualiza el estado de los checkboxes de meses según pagos existentes"""
         if not self.current_user:
             return
+
+        year = int(self.year_var.get())
+        paid_months = self.db.obtener_pagos_usuario_anio(self.current_user['id'], year)
         
-        try:
-            year_str = self.year_var.get()
-            if not year_str: return
-            year = int(year_str)
+        months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+        
+        for i, month_name in enumerate(months):
+            month_num = i + 1
+            state = 'disabled' if month_num in paid_months else 'normal'
+            bg = '#bdc3c7' if month_num in paid_months else '#f0f0f0'
             
-            db = get_db_manager()
-            meses_pagados = db.obtener_pagos_usuario_anio(self.current_user['id'], year)
+            btn = tk.Button(self.months_frame, text=month_name, width=5, height=2, bg=bg,
+                          command=lambda m=month_num: self.toggle_month(m))
             
-            # Verificar también qué meses ya están en el carrito para ese año
-            meses_en_carrito = [item['mes'] for item in self.cart if item.get('anio') == year and item.get('mes')]
-            
-            for i, (chk, var) in enumerate(zip(self.month_checks, self.month_vars)):
-                mes_num = i + 1
+            if month_num in paid_months:
+                btn.config(state='disabled', relief='sunken')
                 
-                if mes_num in meses_pagados:
-                    chk.config(state='disabled', fg='red', text=f"{self.meses_nombres[i]} (Pagado)")
-                    var.set(False)
-                elif mes_num in meses_en_carrito:
-                    chk.config(state='disabled', fg='blue', text=f"{self.meses_nombres[i]} (En lista)")
-                    var.set(False)
-                else:
-                    chk.config(state='normal', fg='black', text=self.meses_nombres[i])
-                    var.set(False)
-                    
-        except ValueError:
-            pass
-    
-    def add_months_to_cart(self):
-        """Agrega los meses seleccionados al carrito"""
+            row = i // 4
+            col = i % 4
+            btn.grid(row=row, column=col, padx=2, pady=2)
+            self.month_buttons[month_num] = btn
+
+    def toggle_month(self, month):
+        if month in self.selected_months:
+            self.selected_months.remove(month)
+            self.month_buttons[month].config(bg='#f0f0f0')
+        else:
+            self.selected_months.add(month)
+            self.month_buttons[month].config(bg='#3498db')
+        self.update_cart()
+
+    def select_full_year(self):
+        if not self.current_user:
+            return
+            
+        year = int(self.year_var.get())
+        paid_months = self.db.obtener_pagos_usuario_anio(self.current_user['id'], year)
+        
+        # Seleccionar todos los no pagados
+        for m in range(1, 13):
+            if m not in paid_months:
+                self.selected_months.add(m)
+                if m in self.month_buttons:
+                    self.month_buttons[m].config(bg='#3498db')
+        
+        self.update_cart()
+
+    def reset_selections(self):
+        self.selected_months.clear()
+        self.var_cooperacion.set(False)
+        self.var_toma_nueva.set(False)
+        self.var_inasistencia.set(False)
+        self.update_cart()
+
+    def is_late_payment(self, month, year):
+        """Determina si un pago es tardío (después del 3er domingo del mes)"""
+        now = datetime.now()
+        current_year = now.year
+        current_month = now.month
+        
+        if year < current_year:
+            return True
+        if year == current_year and month < current_month:
+            return True
+        if year == current_year and month == current_month:
+            # Calcular 3er domingo
+            c = calendar.Calendar(firstweekday=calendar.SUNDAY)
+            month_cal = c.monthdatescalendar(year, month)
+            sundays = [day for week in month_cal for day in week if day.weekday() == calendar.SUNDAY and day.month == month]
+            
+            if len(sundays) >= 3:
+                third_sunday = sundays[2]
+                if now.date() > third_sunday:
+                    return True
+        return False
+
+    def update_cart(self):
+        self.cart_items = []
         if not self.current_user:
             return
 
-        try:
-            year = int(self.year_var.get())
-            db = get_db_manager()
+        # 1. Meses seleccionados
+        year = int(self.year_var.get())
+        sorted_months = sorted(list(self.selected_months))
+        
+        # Agregar meses
+        for m in sorted_months:
+            is_late = self.is_late_payment(m, year)
             
-            # Obtener costos de configuración
-            cuota_base = float(db.obtener_configuracion('cuota_mensual') or 70.0)
-            costo_vacas = float(db.obtener_configuracion('costo_vacas') or 0.0)
-            costo_inquilinos = float(db.obtener_configuracion('costo_inquilinos') or 0.0)
-            multa_retraso = float(db.obtener_configuracion('multa_retraso') or 100.0)
+            # Base mensual ($70)
+            self.cart_items.append({
+                'concepto': f"Mensualidad",
+                'mes': m,
+                'anio': year,
+                'precio': self.monthly_fee,
+                'cantidad': 1
+            })
             
-            # Obtener datos del usuario
-            num_vacas = self.current_user.get('vacas', 0)
-            num_inquilinos = self.current_user.get('inquilinos', 0)
-            
-            # Calcular cuota total mensual
-            total_mensual = cuota_base + (num_vacas * costo_vacas) + (num_inquilinos * costo_inquilinos)
-            
-            added_count = 0
-            for i, var in enumerate(self.month_vars):
-                if var.get():
-                    mes_num = i + 1
-                    mes_nombre = self.meses_nombres[i]
-                    
-                    # Agregar al carrito
-                    self.cart.append({
-                        'concepto': 'Mensualidad',
-                        'mes': mes_num,
+            # Recargo si es tarde ($30 para llegar a $100)
+            if is_late:
+                recargo = 100.0 - self.monthly_fee # Asumiendo $100 total
+                if recargo > 0:
+                    self.cart_items.append({
+                        'concepto': f"Recargo Mes {m}",
+                        'mes': m,
                         'anio': year,
-                        'precio': total_mensual,
-                        'display': f"Mensualidad: {mes_nombre} {year} - ${total_mensual:.2f}"
+                        'precio': recargo,
+                        'cantidad': 1
                     })
-                    added_count += 1
-                    var.set(False) # Desmarcar
             
-            if added_count > 0:
-                # Verificar si aplica multa por retraso (después del 31 de Marzo)
-                today = datetime.now()
-                apply_fine = False
+            # Vacas (por mes)
+            if self.current_user['vacas'] > 0:
+                self.cart_items.append({
+                    'concepto': f"Costo Vacas ({self.current_user['vacas']})",
+                    'mes': m,
+                    'anio': year,
+                    'precio': self.current_user['vacas'] * self.cost_vacas,
+                    'cantidad': 1
+                })
                 
-                # Si es año anterior, siempre aplica
-                if year < today.year:
-                    apply_fine = True
-                # Si es año actual y estamos después de marzo
-                elif year == today.year and today.month > 3:
-                    apply_fine = True
-                
-                if apply_fine:
-                    # Verificar si ya está en el carrito
-                    fine_in_cart = any(item['concepto'] == 'Multa por Retraso' and item.get('anio') == year for item in self.cart)
-                    
-                    if not fine_in_cart:
-                        if messagebox.askyesno("Retraso Detectado", f"El pago se está realizando fuera de tiempo (después del 31 de Marzo).\n¿Desea agregar la multa por retraso de ${multa_retraso:.2f}?"):
-                            self.cart.append({
-                                'concepto': 'Multa por Retraso',
-                                'mes': None,
-                                'anio': year,
-                                'precio': multa_retraso,
-                                'display': f"Multa: Retraso {year} - ${multa_retraso:.2f}"
-                            })
+            # Inquilinos (por mes)
+            if self.current_user['inquilinos'] > 0:
+                self.cart_items.append({
+                    'concepto': f"Costo Inquilinos ({self.current_user['inquilinos']})",
+                    'mes': m,
+                    'anio': year,
+                    'precio': self.current_user['inquilinos'] * self.cost_inquilinos,
+                    'cantidad': 1
+                })
 
-                self.update_cart_display()
-                self.update_months_status() # Actualizar visualmente (deshabilitar los agregados)
-            else:
-                messagebox.showinfo("Aviso", "Seleccione al menos un mes para agregar")
-                
-        except ValueError:
-            messagebox.showerror("Error", "Año inválido")
-
-    def add_concept(self):
-        """Agrega un concepto adicional al carrito"""
-        concepto = self.concept_combo.get()
-        if not concepto:
-            return
+        # 2. Extras
+        if self.var_cooperacion.get():
+            self.cart_items.append({
+                'concepto': "Cooperación",
+                'precio': self.cost_cooperacion,
+                'cantidad': 1,
+                'anio': year
+            })
             
-        precio = self.conceptos_map.get(concepto, 0.0)
-        current_year = int(self.year_var.get()) # Usar año seleccionado por defecto
+        if self.var_toma_nueva.get():
+            self.cart_items.append({
+                'concepto': "Toma Nueva",
+                'precio': self.cost_toma_nueva,
+                'cantidad': 1,
+                'anio': year
+            })
+            
+        if self.var_inasistencia.get():
+            self.cart_items.append({
+                'concepto': "Multa por Inasistencia",
+                'precio': self.fine_absence,
+                'cantidad': 1,
+                'anio': year
+            })
+            
+        # Actualizar Treeview
+        for item in self.cart_tree.get_children():
+            self.cart_tree.delete(item)
+            
+        self.total_amount = 0.0
+        for item in self.cart_items:
+            importe = item['precio'] * item.get('cantidad', 1)
+            self.total_amount += importe
+            
+            # Formato para mostrar
+            desc = item['concepto']
+            if 'mes' in item and 'Recargo' not in desc: # Mostrar mes solo en mensualidad base
+                months = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+                desc += f" {months[item['mes']]}"
+            
+            self.cart_tree.insert('', tk.END, values=(desc, f"${importe:.2f}"))
+            
+        self.lbl_total.config(text=f"${self.total_amount:.2f}")
         
-        self.cart.append({
-            'concepto': concepto,
-            'mes': None,
-            'anio': current_year,
-            'precio': precio,
-            'display': f"Extra: {concepto} - ${precio:.2f}"
-        })
-        self.update_cart_display()
-    
-    def remove_item_from_cart(self):
-        """Elimina el item seleccionado del carrito"""
-        selection = self.payment_details_list.curselection()
-        if not selection:
-            return
-            
-        idx = selection[0]
-        item = self.cart.pop(idx)
-        self.update_cart_display()
-        
-        # Si era un mes, necesitamos reactivar el checkbox si es del año actual visualizado
-        if item.get('mes'):
-            self.update_months_status()
+        # Habilitar botón pagar
+        if self.total_amount > 0:
+            self.btn_pagar.config(state='normal')
+        else:
+            self.btn_pagar.config(state='disabled')
 
-    def update_cart_display(self):
-        """Actualiza la lista visual del carrito y el total"""
-        self.payment_details_list.delete(0, tk.END)
-        for item in self.cart:
-            self.payment_details_list.insert(tk.END, item['display'])
-            
-        self.calculate_total()
-    
-    def calculate_total(self):
-        """Calcula el total a pagar"""
-        total = sum(item['precio'] for item in self.cart)
-        self.total_amount = total
-        self.total_label.config(text=f"${total:.2f}")
-    
     def process_payment(self):
-        """Procesa el pago"""
-        if not self.current_user:
+        if not self.current_user or not self.cart_items:
             return
             
-        if not self.cart:
-            messagebox.showwarning("Pago", "La lista de pago está vacía")
-            return
-            
-        try:
-            db = get_db_manager()
-            
-            # Preparar datos para registrar_pago
-            pago_id = db.registrar_pago(
-                usuario_id=self.current_user['id'],
-                detalles=self.cart,
-                observaciones=""
-            )
-            
-            if pago_id:
-                messagebox.showinfo("Éxito", "Pago registrado correctamente")
+        if messagebox.askyesno("Confirmar Pago", f"¿Registrar pago por ${self.total_amount:.2f}?"):
+            try:
+                pago_id = self.db.registrar_pago(
+                    self.current_user['id'],
+                    self.cart_items,
+                    observaciones=""
+                )
                 
-                # Generar recibo
-                if messagebox.askyesno("Recibo", "¿Desea generar el recibo ahora?"):
-                    generator = ReceiptGenerator()
-                    pdf_path = generator.generate_receipt(pago_id)
-                    if pdf_path:
-                        os.startfile(pdf_path)
-                
-                # Limpiar y actualizar
-                self.clear_payment_selection()
-                self.update_months_status()
-            else:
-                messagebox.showerror("Error", "No se pudo registrar el pago")
-                
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al procesar pago: {str(e)}")
-
-    def generate_fine(self):
-        """Genera una multa por desperdicio"""
-        if not self.current_user:
-            messagebox.showwarning("Aviso", "Primero seleccione un usuario")
-            return
-            
-        try:
-            db = get_db_manager()
-            monto_multa = float(db.obtener_configuracion('multa_desperdicio') or 500.0)
-            
-            if messagebox.askyesno("Generar Multa", f"¿Desea generar una multa por desperdicio de agua?\nMonto: ${monto_multa:.2f}"):
-                current_year = int(self.year_var.get())
-                
-                self.cart.append({
-                    'concepto': 'Multa por Desperdicio',
-                    'mes': None,
-                    'anio': current_year,
-                    'precio': monto_multa,
-                    'display': f"Multa: Desperdicio - ${monto_multa:.2f}"
-                })
-                self.update_cart_display()
-                
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al generar multa: {e}")
-
-    def generate_absence_fine(self):
-        """Genera una multa por inasistencia"""
-        if not self.current_user:
-            messagebox.showwarning("Aviso", "Primero seleccione un usuario")
-            return
-            
-        try:
-            db = get_db_manager()
-            monto_multa = float(db.obtener_configuracion('multa_inasistencia') or 200.0)
-            
-            if messagebox.askyesno("Generar Multa", f"¿Desea generar una multa por inasistencia?\nMonto: ${monto_multa:.2f}"):
-                current_year = int(self.year_var.get())
-                
-                self.cart.append({
-                    'concepto': 'Multa por Inasistencia',
-                    'mes': None,
-                    'anio': current_year,
-                    'precio': monto_multa,
-                    'display': f"Multa: Inasistencia - ${monto_multa:.2f}"
-                })
-                self.update_cart_display()
-                
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al generar multa: {e}")
+                if pago_id:
+                    messagebox.showinfo("Éxito", "Pago registrado correctamente")
+                    
+                    # Generar Recibo
+                    try:
+                        pdf_path = self.receipt_gen.generate_receipt(pago_id)
+                        if pdf_path and os.path.exists(pdf_path):
+                            os.startfile(pdf_path) if os.name == 'nt' else None
+                        else:
+                            messagebox.showwarning("Aviso", "El recibo se generó pero no se pudo abrir automáticamente.")
+                    except Exception as e:
+                        messagebox.showerror("Error Recibo", f"Pago registrado pero error al abrir recibo: {e}")
+                    
+                    # Resetear
+                    self.reset_selections()
+                    self.refresh_months_grid()
+                    self.update_user_display()
+                else:
+                    messagebox.showerror("Error", "No se pudo registrar el pago en la base de datos")
+                    
+            except Exception as e:
+                messagebox.showerror("Error", f"Error inesperado: {e}")

@@ -24,7 +24,6 @@ class ConfigurationWindow:
         self.root.state('zoomed') if hasattr(self.root, 'state') else None  # Maximizar en Windows
         
         # Variables
-        self.concepts_data = []
         self.rates_vars = {}
         
         # Configurar la interfaz
@@ -32,7 +31,6 @@ class ConfigurationWindow:
         
         # Cargar datos iniciales
         self.load_configuration()
-        self.refresh_concepts_list()
     
     def setup_ui(self):
         """Configura la interfaz de usuario"""
@@ -55,9 +53,6 @@ class ConfigurationWindow:
         
         # Pestaña de configuración general
         self.create_general_config_tab()
-        
-        # Pestaña de conceptos de cobro
-        self.create_concepts_tab()
         
         # Pestaña de seguridad
         self.create_security_tab()
@@ -170,8 +165,9 @@ class ConfigurationWindow:
         fields = [
             ("Costo por Vaca:", "costo_vacas"),
             ("Costo por Inquilino:", "costo_inquilinos"),
+            ("Costo Cooperación:", "costo_cooperacion"),
+            ("Costo Toma Nueva:", "costo_toma_nueva"),
             ("Multa por Retraso:", "multa_retraso"),
-            ("Multa por Desperdicio:", "multa_desperdicio"),
             ("Multa por Inasistencia:", "multa_inasistencia")
         ]
         
@@ -254,120 +250,6 @@ class ConfigurationWindow:
             font=('Arial', 11, 'bold')
         )
         update_info_btn.pack(pady=(15, 5))
-    
-    def create_concepts_tab(self):
-        """Crea la pestaña de conceptos de cobro"""
-        # Frame para la pestaña
-        concepts_frame = tk.Frame(self.notebook)
-        self.notebook.add(concepts_frame, text="Conceptos de Cobro")
-        
-        # Frame superior para agregar nuevo concepto
-        add_frame = tk.LabelFrame(concepts_frame, text="Agregar Nuevo Concepto", font=('Arial', 12, 'bold'))
-        add_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
-        
-        # Campos para nuevo concepto
-        fields_frame = tk.Frame(add_frame)
-        fields_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        # Nombre del concepto
-        name_frame = tk.Frame(fields_frame)
-        name_frame.pack(fill=tk.X, pady=5)
-        
-        tk.Label(name_frame, text="Nombre:", font=('Arial', 11), width=10, anchor='w').pack(side=tk.LEFT)
-        
-        self.new_concept_name_var = tk.StringVar()
-        name_entry = tk.Entry(
-            name_frame,
-            textvariable=self.new_concept_name_var,
-            font=('Arial', 11)
-        )
-        name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
-        
-        # Precio del concepto
-        price_frame = tk.Frame(fields_frame)
-        price_frame.pack(fill=tk.X, pady=5)
-        
-        tk.Label(price_frame, text="Precio:", font=('Arial', 11), width=10, anchor='w').pack(side=tk.LEFT)
-        
-        self.new_concept_price_var = tk.StringVar()
-        price_entry = tk.Entry(
-            price_frame,
-            textvariable=self.new_concept_price_var,
-            font=('Arial', 11),
-            width=15
-        )
-        price_entry.pack(side=tk.LEFT, padx=(5, 5))
-        
-        tk.Label(price_frame, text="$", font=('Arial', 11)).pack(side=tk.LEFT)
-        
-        # Botón agregar
-        add_concept_btn = tk.Button(
-            fields_frame,
-            text="Agregar Concepto",
-            command=self.add_new_concept,
-            bg='#27ae60',
-            fg='white',
-            font=('Arial', 11, 'bold')
-        )
-        add_concept_btn.pack(pady=10)
-        
-        # Frame para lista de conceptos existentes
-        list_frame = tk.LabelFrame(concepts_frame, text="Conceptos Existentes", font=('Arial', 12, 'bold'))
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        # Crear Treeview para conceptos
-        tree_frame = tk.Frame(list_frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        columns = ('nombre', 'precio', 'estado')
-        self.concepts_tree = ttk.Treeview(tree_frame, columns=columns, show='headings', height=12)
-        
-        # Configurar columnas
-        self.concepts_tree.heading('nombre', text='Nombre del Concepto')
-        self.concepts_tree.heading('precio', text='Precio')
-        self.concepts_tree.heading('estado', text='Estado')
-        
-        self.concepts_tree.column('nombre', width=250)
-        self.concepts_tree.column('precio', width=100, anchor='center')
-        self.concepts_tree.column('estado', width=80, anchor='center')
-        
-        # Scrollbars para la lista
-        v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.concepts_tree.yview)
-        h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.concepts_tree.xview)
-        
-        self.concepts_tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
-        
-        # Posicionar elementos
-        self.concepts_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-        
-        # Botones para gestionar conceptos
-        buttons_frame = tk.Frame(list_frame)
-        buttons_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        
-        edit_concept_btn = tk.Button(
-            buttons_frame,
-            text="Editar Seleccionado",
-            command=self.edit_selected_concept,
-            bg='#f39c12',
-            fg='white',
-            font=('Arial', 10)
-        )
-        edit_concept_btn.pack(side=tk.LEFT, padx=(0, 5))
-        
-        toggle_concept_btn = tk.Button(
-            buttons_frame,
-            text="Activar/Desactivar",
-            command=self.toggle_concept_status,
-            bg='#95a5a6',
-            fg='white',
-            font=('Arial', 10)
-        )
-        toggle_concept_btn.pack(side=tk.LEFT, padx=5)
-        
-        # Eventos del tree
-        self.concepts_tree.bind('<Double-1>', lambda e: self.edit_selected_concept())
     
     def create_security_tab(self):
         """Crea la pestaña de configuración de seguridad"""
@@ -524,8 +406,9 @@ class ConfigurationWindow:
             defaults = {
                 'costo_vacas': '0.0',
                 'costo_inquilinos': '0.0',
+                'costo_cooperacion': '100.0',
+                'costo_toma_nueva': '500.0',
                 'multa_retraso': '100.0',
-                'multa_desperdicio': '500.0',
                 'multa_inasistencia': '200.0'
             }
             
@@ -592,113 +475,6 @@ class ConfigurationWindow:
             
         except Exception as e:
             messagebox.showerror("Error", f"Error al actualizar información: {str(e)}")
-    
-    # === FUNCIONES DE CONCEPTOS DE COBRO ===
-    
-    def refresh_concepts_list(self):
-        """Actualiza la lista de conceptos de cobro"""
-        try:
-            db = get_db_manager()
-            self.concepts_data = db.obtener_conceptos_cobro(solo_activos=False)
-            
-            # Limpiar el tree
-            for item in self.concepts_tree.get_children():
-                self.concepts_tree.delete(item)
-            
-            # Llenar con datos
-            for concept in self.concepts_data:
-                estado = "Activo" if concept['activo'] else "Inactivo"
-                self.concepts_tree.insert('', 'end', values=(
-                    concept['nombre'],
-                    f"${concept['precio']:.2f}",
-                    estado
-                ))
-                
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al cargar conceptos: {str(e)}")
-    
-    def add_new_concept(self):
-        """Agrega un nuevo concepto de cobro"""
-        name = self.new_concept_name_var.get().strip()
-        price_str = self.new_concept_price_var.get().strip()
-        
-        if not name or not price_str:
-            messagebox.showwarning("Datos incompletos", "Complete todos los campos")
-            return
-        
-        try:
-            price = float(price_str)
-            if price <= 0:
-                messagebox.showwarning("Precio inválido", "El precio debe ser mayor a cero")
-                return
-            
-            db = get_db_manager()
-            if db.crear_concepto_cobro(name, price):
-                messagebox.showinfo("Éxito", "Concepto agregado correctamente")
-                self.new_concept_name_var.set("")
-                self.new_concept_price_var.set("")
-                self.refresh_concepts_list()
-            else:
-                messagebox.showerror("Error", "Ya existe un concepto con ese nombre")
-                
-        except ValueError:
-            messagebox.showwarning("Precio inválido", "Ingrese un precio numérico válido")
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al agregar concepto: {str(e)}")
-    
-    def edit_selected_concept(self):
-        """Edita el concepto seleccionado"""
-        selection = self.concepts_tree.selection()
-        if not selection:
-            messagebox.showinfo("Sin selección", "Seleccione un concepto para editar")
-            return
-        
-        # Obtener el concepto seleccionado
-        item = self.concepts_tree.item(selection[0])
-        concept_name = item['values'][0]
-        
-        # Buscar el concepto en los datos
-        concept = next((c for c in self.concepts_data if c['nombre'] == concept_name), None)
-        if not concept:
-            messagebox.showerror("Error", "No se encontró el concepto seleccionado")
-            return
-        
-        # Crear diálogo de edición
-        EditConceptDialog(self.root, concept, self.refresh_concepts_list)
-    
-    def toggle_concept_status(self):
-        """Activa/desactiva el concepto seleccionado"""
-        selection = self.concepts_tree.selection()
-        if not selection:
-            messagebox.showinfo("Sin selección", "Seleccione un concepto para cambiar su estado")
-            return
-        
-        # Obtener el concepto seleccionado
-        item = self.concepts_tree.item(selection[0])
-        concept_name = item['values'][0]
-        
-        # Buscar el concepto en los datos
-        concept = next((c for c in self.concepts_data if c['nombre'] == concept_name), None)
-        if not concept:
-            messagebox.showerror("Error", "No se encontró el concepto seleccionado")
-            return
-        
-        # Cambiar estado
-        new_status = not concept['activo']
-        status_text = "activar" if new_status else "desactivar"
-        
-        if messagebox.askyesno("Confirmar Cambio",
-                             f"¿Confirma {status_text} el concepto '{concept_name}'?"):
-            try:
-                db = get_db_manager()
-                if db.actualizar_concepto_cobro(concept['id'], activo=new_status):
-                    messagebox.showinfo("Éxito", f"Concepto {status_text}do correctamente")
-                    self.refresh_concepts_list()
-                else:
-                    messagebox.showerror("Error", "No se pudo cambiar el estado del concepto")
-                    
-            except Exception as e:
-                messagebox.showerror("Error", f"Error al cambiar estado: {str(e)}")
     
     # === FUNCIONES DE SEGURIDAD ===
     
@@ -799,15 +575,7 @@ class ConfigurationWindow:
         """Restaura un respaldo de la base de datos"""
         try:
             from tkinter import filedialog
-            import shutil
-            
-            # Advertencia
-            warning_msg = ("ADVERTENCIA: Esta operación reemplazará toda la información actual " +
-                          "con los datos del respaldo seleccionado.\n\n" +
-                          "¿Está seguro de que desea continuar?")
-            
-            if not messagebox.askyesno("Confirmar Restauración", warning_msg):
-                return
+            import sqlite3
             
             # Seleccionar archivo de respaldo
             backup_path = filedialog.askopenfilename(
@@ -815,152 +583,32 @@ class ConfigurationWindow:
                 filetypes=[("Base de datos SQLite", "*.db"), ("Todos los archivos", "*.*")]
             )
             
-            if backup_path:
-                # Confirmar una vez más
-                if messagebox.askyesno("Última Confirmación",
-                                     "¿Confirma restaurar el respaldo?\n\n" +
-                                     "Esta acción NO se puede deshacer."):
-                    
-                    # Determinar ruta destino
-                    dest_path = os.path.abspath("agua_potable.db")
-                    
-                    # Restaurar la base de datos
-                    shutil.copy2(backup_path, dest_path)
-                    messagebox.showinfo("Éxito", 
-                                      "Respaldo restaurado correctamente.\n\n" +
-                                      "Se recomienda reiniciar la aplicación.")
-                    
+            if not backup_path:
+                return
+                
+            if messagebox.askyesno("Confirmar Restauración", 
+                                 "ADVERTENCIA: Esta acción reemplazará todos los datos actuales con los del respaldo.\n" +
+                                 "¿Está seguro de que desea continuar?"):
+                
+                # Determinar ruta de la BD
+                db_path = os.path.abspath("agua_potable.db")
+                if not os.path.exists(db_path):
+                    # Intentar en el directorio del script
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    db_path = os.path.join(script_dir, "agua_potable.db")
+                
+                # Usar la API de respaldo de SQLite (al revés)
+                source_conn = sqlite3.connect(backup_path)
+                dest_conn = sqlite3.connect(db_path)
+                
+                with dest_conn:
+                    source_conn.backup(dest_conn)
+                
+                dest_conn.close()
+                source_conn.close()
+                
+                messagebox.showinfo("Éxito", "Base de datos restaurada correctamente.\nEl sistema se cerrará para aplicar los cambios.")
+                self.root.quit()
+                
         except Exception as e:
             messagebox.showerror("Error", f"Error al restaurar respaldo: {str(e)}")
-
-
-class EditConceptDialog:
-    def __init__(self, parent, concept: Dict, callback):
-        self.concept = concept
-        self.callback = callback
-        
-        # Crear ventana modal
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Editar Concepto")
-        self.dialog.geometry("400x200")
-        self.dialog.resizable(False, False)
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
-        
-        # Variables
-        self.name_var = tk.StringVar(value=concept['nombre'])
-        self.price_var = tk.StringVar(value=str(concept['precio']))
-        
-        # Configurar la interfaz
-        self.setup_ui()
-        
-        # Centrar la ventana
-        self.center_window()
-    
-    def center_window(self):
-        """Centra la ventana en la pantalla"""
-        self.dialog.update_idletasks()
-        width = self.dialog.winfo_width()
-        height = self.dialog.winfo_height()
-        x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
-        self.dialog.geometry(f'{width}x{height}+{x}+{y}')
-    
-    def setup_ui(self):
-        """Configura la interfaz del diálogo"""
-        # Frame principal
-        main_frame = tk.Frame(self.dialog)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        # Título
-        title_label = tk.Label(
-            main_frame,
-            text="Editar Concepto de Cobro",
-            font=('Arial', 12, 'bold'),
-            fg='#2c3e50'
-        )
-        title_label.pack(pady=(0, 20))
-        
-        # Campo nombre
-        name_frame = tk.Frame(main_frame)
-        name_frame.pack(fill=tk.X, pady=5)
-        
-        tk.Label(name_frame, text="Nombre:", font=('Arial', 10), width=10, anchor='w').pack(side=tk.LEFT)
-        name_entry = tk.Entry(name_frame, textvariable=self.name_var, font=('Arial', 10))
-        name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
-        
-        # Campo precio
-        price_frame = tk.Frame(main_frame)
-        price_frame.pack(fill=tk.X, pady=5)
-        
-        tk.Label(price_frame, text="Precio:", font=('Arial', 10), width=10, anchor='w').pack(side=tk.LEFT)
-        price_entry = tk.Entry(price_frame, textvariable=self.price_var, font=('Arial', 10), width=15)
-        price_entry.pack(side=tk.LEFT, padx=(5, 5))
-        tk.Label(price_frame, text="$", font=('Arial', 10)).pack(side=tk.LEFT)
-        
-        # Botones
-        buttons_frame = tk.Frame(main_frame)
-        buttons_frame.pack(fill=tk.X, pady=(30, 0))
-        
-        save_btn = tk.Button(
-            buttons_frame,
-            text="Guardar Cambios",
-            command=self.save_changes,
-            bg='#27ae60',
-            fg='white',
-            font=('Arial', 11, 'bold'),
-            width=15
-        )
-        save_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
-        cancel_btn = tk.Button(
-            buttons_frame,
-            text="Cancelar",
-            command=self.dialog.destroy,
-            bg='#95a5a6',
-            fg='white',
-            font=('Arial', 11),
-            width=15
-        )
-        cancel_btn.pack(side=tk.LEFT)
-    
-    def save_changes(self):
-        """Guarda los cambios realizados"""
-        name = self.name_var.get().strip()
-        price_str = self.price_var.get().strip()
-        
-        if not name or not price_str:
-            messagebox.showwarning("Datos incompletos", "Complete todos los campos")
-            return
-        
-        try:
-            price = float(price_str)
-            if price <= 0:
-                messagebox.showwarning("Precio inválido", "El precio debe ser mayor a cero")
-                return
-            
-            db = get_db_manager()
-            if db.actualizar_concepto_cobro(self.concept['id'], nombre=name, precio=price):
-                messagebox.showinfo("Éxito", "Concepto actualizado correctamente")
-                self.callback()  # Actualizar la lista
-                self.dialog.destroy()
-            else:
-                messagebox.showerror("Error", "No se pudo actualizar el concepto")
-                
-        except ValueError:
-            messagebox.showwarning("Precio inválido", "Ingrese un precio numérico válido")
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al guardar cambios: {str(e)}")
-
-
-def main():
-    """Función principal para probar el módulo"""
-    root = tk.Tk()
-    root.withdraw()  # Ocultar la ventana principal
-    
-    app = ConfigurationWindow()
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    main()

@@ -60,6 +60,8 @@ class UserManagementWindow:
         self.user_email_var = tk.StringVar()
         self.user_status_var = tk.StringVar(value="Activo")
         self.user_session_var = tk.StringVar(value="1")
+        self.user_vacas_var = tk.IntVar(value=0)
+        self.user_inquilinos_var = tk.IntVar(value=0)
         
         # Configurar la interfaz
         self.setup_ui()
@@ -157,7 +159,9 @@ class UserManagementWindow:
             ("Nombre:", self.user_name_var, False),
             ("Dirección:", self.user_address_var, False),
             ("Teléfono:", self.user_phone_var, False),
-            ("Email:", self.user_email_var, False)
+            ("Email:", self.user_email_var, False),
+            ("Vacas:", self.user_vacas_var, False),
+            ("Inquilinos:", self.user_inquilinos_var, False)
         ]
         
         for i, (label, var, readonly) in enumerate(fields):
@@ -254,6 +258,8 @@ class UserManagementWindow:
             self.user_email_var.set(user['email'] or "")
             self.user_session_var.set(str(user['sesion']))
             self.user_status_var.set(user['estado'])
+            self.user_vacas_var.set(user.get('vacas', 0))
+            self.user_inquilinos_var.set(user.get('inquilinos', 0))
 
     def save_user_changes(self):
         """Guarda los cambios del usuario"""
@@ -270,7 +276,9 @@ class UserManagementWindow:
                 'telefono': self.user_phone_var.get().strip(),
                 'email': self.user_email_var.get().strip(),
                 'sesion': int(self.user_session_var.get()),
-                'estado': self.user_status_var.get()
+                'estado': self.user_status_var.get(),
+                'vacas': self.user_vacas_var.get(),
+                'inquilinos': self.user_inquilinos_var.get()
             }
             
             if not datos['nombre']:
@@ -323,6 +331,8 @@ class UserManagementWindow:
                 self.user_email_var.set("")
                 self.user_session_var.set("1")
                 self.user_status_var.set("Activo")
+                self.user_vacas_var.set(0)
+                self.user_inquilinos_var.set(0)
             else:
                 messagebox.showerror("Error", "No se pudo eliminar el usuario.\nEs posible que tenga pagos registrados.")
         except Exception as e:
@@ -427,6 +437,8 @@ class NewUserDialog:
         self.phone_var = tk.StringVar()
         self.email_var = tk.StringVar()
         self.session_var = tk.StringVar(value="1")
+        self.vacas_var = tk.IntVar(value=0)
+        self.inquilinos_var = tk.IntVar(value=0)
         
         self.setup_ui()
         
@@ -447,7 +459,13 @@ class NewUserDialog:
         tk.Entry(frame, textvariable=self.email_var).pack(fill=tk.X, pady=(0, 10))
         
         tk.Label(frame, text="Sesión (*):").pack(anchor='w', pady=(0, 5))
-        ttk.Combobox(frame, textvariable=self.session_var, values=["1", "2", "3"], state="readonly").pack(fill=tk.X, pady=(0, 20))
+        ttk.Combobox(frame, textvariable=self.session_var, values=["1", "2", "3"], state="readonly").pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(frame, text="Vacas:").pack(anchor='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.vacas_var).pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(frame, text="Inquilinos:").pack(anchor='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.inquilinos_var).pack(fill=tk.X, pady=(0, 20))
         
         tk.Button(frame, text="Crear Usuario", command=self.create_user, bg='#27ae60', fg='white').pack(fill=tk.X)
     
@@ -466,7 +484,9 @@ class NewUserDialog:
                 direccion=self.address_var.get().strip(),
                 telefono=self.phone_var.get().strip(),
                 email=self.email_var.get().strip(),
-                sesion=int(sesion)
+                sesion=int(sesion),
+                vacas=self.vacas_var.get(),
+                inquilinos=self.inquilinos_var.get()
             ):
                 messagebox.showinfo("Éxito", "Usuario creado correctamente")
                 self.callback()
