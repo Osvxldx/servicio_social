@@ -14,6 +14,7 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, Frame, PageTemplate, BaseDocTemplate, FrameBreak
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT, TA_JUSTIFY
 from .database import get_db_manager
+import traceback
 
 class ReceiptGenerator:
     def __init__(self):
@@ -91,6 +92,189 @@ class ReceiptGenerator:
         if not os.path.exists(self.receipts_dir):
             os.makedirs(self.receipts_dir)
     
+    def log_error(self, context: str, e: Exception):
+        try:
+            with open("error_log.txt", "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now()}] Error en {context}: {e}\n")
+                traceback.print_exc(file=f)
+        except:
+            print(f"Error logging error: {e}")
+
+    def generate_waste_receipt(self, pago_id: int) -> Optional[str]:
+        """Genera un recibo específico para multa por desperdicio"""
+        try:
+            db = get_db_manager()
+            pago_data = db.obtener_detalle_pago(pago_id)
+            
+            if not pago_data:
+                return None
+            
+            filename = f"multa_desperdicio_{pago_id}.pdf"
+            filepath = os.path.join(self.receipts_dir, filename)
+            
+            doc = SimpleDocTemplate(
+                filepath,
+                pagesize=letter,
+                rightMargin=1*cm,
+                leftMargin=1*cm,
+                topMargin=1*cm,
+                bottomMargin=1*cm
+            )
+            
+            elements = []
+            
+            # Logo
+            logo_path = os.path.join("assets", "logo.jpg")
+            if os.path.exists(logo_path):
+                elements.append(Image(logo_path, width=3*cm, height=3*cm))
+                elements.append(Spacer(1, 10))
+            
+            # Títulos
+            elements.append(Paragraph("COMITÉ DE AGUA POTABLE Y ALCANTARILLADO", self.title_style))
+            elements.append(Paragraph("DEL BARRIO DE SAN ANTONIO TECAMACHALCO, PUE.", self.subtitle_style))
+            elements.append(Spacer(1, 20))
+            
+            elements.append(Paragraph("MULTA POR DESPERDICIO DE AGUA", self.title_style))
+            elements.append(Spacer(1, 20))
+            
+            # Datos
+            fecha = datetime.strptime(pago_data['fecha_pago'], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
+            
+            data = [
+                ["FOLIO:", f"{pago_data['id']:06d}"],
+                ["FECHA:", fecha],
+                ["USUARIO:", f"{pago_data['nombre']} (ID: {pago_data['usuario_id']})"],
+                ["DIRECCIÓN:", pago_data['direccion']],
+                ["OBSERVACIONES:", pago_data.get('observaciones', 'Desperdicio de agua')],
+                ["TOTAL A PAGAR:", f"${pago_data['total']:.2f}"]
+            ]
+            
+            t = Table(data, colWidths=[5*cm, 10*cm])
+            t.setStyle(TableStyle([
+                ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('SIZE', (0,0), (-1,-1), 12),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+                ('TEXTCOLOR', (0,-1), (-1,-1), colors.red), # Total en rojo
+            ]))
+            
+            elements.append(t)
+            elements.append(Spacer(1, 40))
+            
+            # Firmas
+            firmas_data = [
+                ["_____________________________", "_____________________________"],
+                ["FIRMA DE CONFORMIDAD", "AUTORIZÓ"]
+            ]
+            t_firmas = Table(firmas_data, colWidths=[8*cm, 8*cm])
+            t_firmas.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ]))
+            elements.append(t_firmas)
+            
+            doc.build(elements)
+            return filepath
+            
+        except Exception as e:
+            self.log_error("generate_waste_receipt", e)
+            print(f"Error generando multa: {e}")
+            return None
+
+    def generate_account_statement(self, user_id: int, inasistencias: int = 0) -> Optional[str]:
+        """Genera un estado de cuenta / resumen de adeudo"""
+        try:
+            db = get_db_manager()
+            user = db.buscar_usuario_por_id(user_id)
+            if not user: return None
+            
+            year = datetime.now().year
+            
+            # 1. Obtener meses de adeudo usando la lógica robusta
+            meses_adeudo_nums = db.obtener_meses_adeudo(user_id, year)
+            
+            meses_nombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+            
+            adeudos = []
+            total_deuda = 0.0
+            
+            cuota_base = float(db.obtener_configuracion('cuota_mensual') or 70.0)
+            tomas = user.get('tomas', 1)
+            costo_mensual = cuota_base * tomas
+            
+            # Procesar meses de adeudo
+            for mes_num in meses_adeudo_nums:
+                nombre_mes = meses_nombres[mes_num - 1]
+                
+                monto = costo_mensual
+                # Agregar recargo si aplica (si el mes ya pasó)
+                if datetime.now().month > mes_num:
+                    recargo = (100.0 * tomas) - costo_mensual
+                    if recargo > 0:
+                        monto += recargo
+                
+                adeudos.append([nombre_mes, f"${monto:.2f}"])
+                total_deuda += monto
+            
+            # Procesar Inasistencias
+            if inasistencias > 0:
+                costo_inasistencia = float(db.obtener_configuracion('multa_inasistencia') or 200.0)
+                total_inasistencias = inasistencias * costo_inasistencia
+                adeudos.append([f"Inasistencias ({inasistencias})", f"${total_inasistencias:.2f}"])
+                total_deuda += total_inasistencias
+
+            filename = f"estado_cuenta_{user_id}.pdf"
+            filepath = os.path.join(self.receipts_dir, filename)
+            
+            doc = SimpleDocTemplate(filepath, pagesize=letter)
+            elements = []
+            
+            # Logo
+            logo_path = os.path.join("assets", "logo.jpg")
+            if os.path.exists(logo_path):
+                elements.append(Image(logo_path, width=2*cm, height=2*cm))
+                elements.append(Spacer(1, 10))
+
+            elements.append(Paragraph(f"ESTADO DE CUENTA - {year}", self.title_style))
+            elements.append(Spacer(1, 20))
+            
+            # Info Usuario
+            elements.append(Paragraph(f"<b>Usuario:</b> {user['nombre']} (ID: {user['id']})", self.normal_style))
+            elements.append(Paragraph(f"<b>Dirección:</b> {user['direccion']}", self.normal_style))
+            elements.append(Paragraph(f"<b>Tomas:</b> {tomas} | <b>Sesión:</b> {user['sesion']}", self.normal_style))
+            elements.append(Spacer(1, 20))
+            
+            # Tabla de Adeudos
+            if adeudos:
+                data = [["CONCEPTO", "MONTO ESTIMADO"]] + adeudos
+                data.append(["TOTAL A PAGAR", f"${total_deuda:.2f}"])
+                
+                t = Table(data, colWidths=[10*cm, 4*cm])
+                t.setStyle(TableStyle([
+                    ('GRID', (0,0), (-1,-1), 1, colors.black),
+                    ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('ALIGN', (0,1), (0,-2), 'LEFT'), # Alinear conceptos a la izquierda
+                    ('TEXTCOLOR', (0,-1), (-1,-1), colors.red),
+                ]))
+                elements.append(t)
+            else:
+                elements.append(Paragraph("¡FELICIDADES! NO PRESENTA ADEUDOS ESTE AÑO.", self.title_style))
+                
+            # Nota
+            elements.append(Spacer(1, 30))
+            elements.append(Paragraph("Nota: Este documento es informativo y no representa un comprobante de pago oficial.", self.center_style))
+            
+            doc.build(elements)
+            return filepath
+            
+        except Exception as e:
+            self.log_error("generate_account_statement", e)
+            print(f"Error estado cuenta: {e}")
+            return None
+
     def generate_receipt(self, pago_id: int) -> Optional[str]:
         try:
             db = get_db_manager()
@@ -153,6 +337,7 @@ class ReceiptGenerator:
             return filepath
             
         except Exception as e:
+            self.log_error("generate_receipt", e)
             print(f"Error generando recibo: {e}")
             import traceback
             traceback.print_exc()

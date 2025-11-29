@@ -115,6 +115,123 @@ class PaymentRegistrationWindow:
         self.lbl_nombre = tk.Label(self.info_frame, text="Seleccione un usuario", font=('Arial', 12, 'bold'), wraplength=280)
         self.lbl_nombre.pack(pady=10)
         
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Módulo de registro de pagos
+"""
+
+import tkinter as tk
+from tkinter import ttk, messagebox
+from datetime import datetime, timedelta
+import calendar
+from .database import get_db_manager
+from .receipt_generator import ReceiptGenerator
+import os
+
+class PaymentRegistrationWindow:
+    def __init__(self, parent=None):
+        if parent:
+            self.root = tk.Toplevel(parent)
+        else:
+            self.root = tk.Tk()
+            
+        self.root.title("Registro de Pagos")
+        self.root.geometry("1200x700")
+        self.root.state('zoomed') if hasattr(self.root, 'state') else None
+        
+        self.db = get_db_manager()
+        self.receipt_gen = ReceiptGenerator()
+        
+        # Variables de estado
+        self.current_user = None
+        self.selected_months = set()
+        self.cart_items = []
+        self.total_amount = 0.0
+        
+        # Variables de configuración
+        self.load_config_values()
+        
+        self.setup_ui()
+        
+    def load_config_values(self):
+        """Carga valores de configuración necesarios"""
+        self.monthly_fee = float(self.db.obtener_configuracion('cuota_mensual') or 70.0)
+        self.cost_vacas = float(self.db.obtener_configuracion('costo_vacas') or 0.0)
+        self.cost_inquilinos = float(self.db.obtener_configuracion('costo_inquilinos') or 0.0)
+        self.cost_cooperacion = float(self.db.obtener_configuracion('costo_cooperacion') or 50.0)
+        self.cost_toma_nueva = float(self.db.obtener_configuracion('costo_toma_nueva') or 3000.0)
+        self.fine_absence = float(self.db.obtener_configuracion('multa_inasistencia') or 200.0)
+
+    def setup_ui(self):
+        # Header con botón Volver
+        header_frame = tk.Frame(self.root, bg='#2c3e50', height=60)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+        
+        tk.Label(
+            header_frame, 
+            text="Registro de Pagos", 
+            font=('Arial', 20, 'bold'), 
+            fg='white', 
+            bg='#2c3e50'
+        ).pack(side=tk.LEFT, padx=20)
+        
+        tk.Button(
+            header_frame,
+            text="Volver al Menú",
+            command=self.root.destroy,
+            bg='#e74c3c',
+            fg='white',
+            font=('Arial', 10, 'bold')
+        ).pack(side=tk.RIGHT, padx=20)
+
+        # Contenedor principal
+        main_container = tk.Frame(self.root)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Panel Izquierdo
+        left_panel = tk.Frame(main_container, width=300)
+        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        
+        self.create_search_panel(left_panel)
+        self.create_user_info_panel(left_panel)
+        
+        # Panel Central
+        center_panel = tk.Frame(main_container)
+        center_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+        
+        self.create_months_panel(center_panel)
+        self.create_extras_panel(center_panel)
+        
+        # Panel Derecho
+        right_panel = tk.Frame(main_container, width=350)
+        right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+        
+        self.create_summary_panel(right_panel)
+
+    def create_search_panel(self, parent):
+        frame = tk.LabelFrame(parent, text="Buscar Usuario", font=('Arial', 10, 'bold'))
+        frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Búsqueda por nombre o ID
+        tk.Label(frame, text="Nombre o ID:").pack(anchor='w', padx=5)
+        self.search_var = tk.StringVar()
+        self.search_var.trace('w', self.on_search_change)
+        tk.Entry(frame, textvariable=self.search_var).pack(fill=tk.X, padx=5, pady=(0, 5))
+        
+        # Lista de resultados
+        self.results_list = tk.Listbox(frame, height=6)
+        self.results_list.pack(fill=tk.X, padx=5, pady=5)
+        self.results_list.bind('<<ListboxSelect>>', self.on_user_select)
+
+    def create_user_info_panel(self, parent):
+        self.info_frame = tk.LabelFrame(parent, text="Información del Usuario", font=('Arial', 10, 'bold'))
+        self.info_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.lbl_nombre = tk.Label(self.info_frame, text="Seleccione un usuario", font=('Arial', 12, 'bold'), wraplength=280)
+        self.lbl_nombre.pack(pady=10)
+        
         details_frame = tk.Frame(self.info_frame)
         details_frame.pack(fill=tk.X, padx=5)
         
@@ -123,6 +240,9 @@ class PaymentRegistrationWindow:
         
         self.lbl_direccion = tk.Label(details_frame, text="Dirección: -", wraplength=280, justify=tk.LEFT)
         self.lbl_direccion.pack(anchor='w')
+
+        self.lbl_tomas = tk.Label(details_frame, text="Tomas: 1")
+        self.lbl_tomas.pack(anchor='w')
         
         self.lbl_vacas = tk.Label(details_frame, text="Vacas: 0")
         self.lbl_vacas.pack(anchor='w')
@@ -187,6 +307,10 @@ class PaymentRegistrationWindow:
         self.spin_inasistencia.bind('<KeyRelease>', lambda e: self.update_cart())
         self.spin_inasistencia.bind('<<Increment>>', lambda e: self.update_cart())
         self.spin_inasistencia.bind('<<Decrement>>', lambda e: self.update_cart())
+        
+        # Botón Multa Desperdicio
+        tk.Button(frame, text="Multa Desperdicio de Agua", command=self.open_waste_fine_dialog,
+                 bg='#e67e22', fg='white', font=('Arial', 9, 'bold')).pack(anchor='w', padx=10, pady=5)
 
     def create_summary_panel(self, parent):
         frame = tk.LabelFrame(parent, text="Resumen de Pago", font=('Arial', 12, 'bold'))
@@ -256,6 +380,7 @@ class PaymentRegistrationWindow:
         self.lbl_nombre.config(text=u['nombre'])
         self.lbl_id.config(text=f"ID: {u['id']}")
         self.lbl_direccion.config(text=f"Dirección: {u['direccion']}")
+        self.lbl_tomas.config(text=f"Tomas: {u.get('tomas', 1)}")
         self.lbl_vacas.config(text=f"Vacas: {u['vacas']}")
         self.lbl_inquilinos.config(text=f"Inquilinos: {u['inquilinos']}")
         
@@ -362,24 +487,32 @@ class PaymentRegistrationWindow:
         for m in sorted_months:
             is_late = self.is_late_payment(m, year)
             
-            # Base mensual ($70)
+            # Base mensual ($70) * Tomas
+            tomas = self.current_user.get('tomas', 1)
+            base_cost = self.monthly_fee * tomas
+            
             self.cart_items.append({
                 'concepto': f"Mensualidad",
                 'mes': m,
                 'anio': year,
-                'precio': self.monthly_fee,
+                'precio': base_cost,
                 'cantidad': 1
             })
             
-            # Recargo si es tarde ($30 para llegar a $100)
+            # Recargo si es tarde ($30 para llegar a $100) * Tomas
             if is_late:
-                recargo = 100.0 - self.monthly_fee # Asumiendo $100 total
-                if recargo > 0:
+                # El recargo base es (100 - 70) = 30.
+                # Si son 2 tomas, debería ser (200 - 140) = 60.
+                # O sea, recargo_base * tomas.
+                recargo_base = 100.0 - self.monthly_fee
+                recargo_total = recargo_base * tomas
+                
+                if recargo_total > 0:
                     self.cart_items.append({
                         'concepto': f"Recargo Mes {m}",
                         'mes': m,
                         'anio': year,
-                        'precio': recargo,
+                        'precio': recargo_total,
                         'cantidad': 1
                     })
             
@@ -488,3 +621,67 @@ class PaymentRegistrationWindow:
                     
             except Exception as e:
                 messagebox.showerror("Error", f"Error inesperado: {e}")
+
+    def open_waste_fine_dialog(self):
+        """Abre diálogo para multa de desperdicio"""
+        if not self.current_user:
+            messagebox.showwarning("Aviso", "Seleccione un usuario primero")
+            return
+            
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Multa por Desperdicio")
+        dialog.geometry("400x300")
+        
+        tk.Label(dialog, text="Multa por Desperdicio de Agua", font=('Arial', 12, 'bold')).pack(pady=10)
+        
+        tk.Label(dialog, text="Monto de la Multa ($):").pack(pady=5)
+        amount_var = tk.DoubleVar(value=500.0)
+        tk.Entry(dialog, textvariable=amount_var).pack(pady=5)
+        
+        tk.Label(dialog, text="Observaciones:").pack(pady=5)
+        obs_var = tk.StringVar(value="Desperdicio de agua")
+        tk.Entry(dialog, textvariable=obs_var, width=40).pack(pady=5)
+        
+        def process():
+            try:
+                monto = amount_var.get()
+                if monto <= 0:
+                    messagebox.showerror("Error", "El monto debe ser mayor a 0")
+                    return
+                
+                if messagebox.askyesno("Confirmar", f"¿Registrar multa por ${monto:.2f}?"):
+                    # Crear item de pago único
+                    items = [{
+                        'concepto': "Multa Desperdicio Agua",
+                        'precio': monto,
+                        'cantidad': 1,
+                        'anio': datetime.now().year
+                    }]
+                    
+                    pago_id = self.db.registrar_pago(
+                        self.current_user['id'],
+                        items,
+                        observaciones=obs_var.get()
+                    )
+                    
+                    if pago_id:
+                        messagebox.showinfo("Éxito", "Multa registrada correctamente")
+                        dialog.destroy()
+                        
+                        # Generar Recibo Especial
+                        try:
+                            # Usamos un método específico para este recibo si es necesario, 
+                            # o el genérico si el diseño lo permite.
+                            # El usuario pidió "ese recibo lo haras tu, que se vea bien".
+                            # Vamos a añadir un método generate_waste_receipt en ReceiptGenerator
+                            pdf_path = self.receipt_gen.generate_waste_receipt(pago_id)
+                            if pdf_path and os.path.exists(pdf_path):
+                                os.startfile(pdf_path) if os.name == 'nt' else None
+                        except Exception as e:
+                            messagebox.showerror("Error Recibo", f"Error al generar recibo: {e}")
+                            
+                        self.update_user_display()
+            except ValueError:
+                messagebox.showerror("Error", "Monto inválido")
+        
+        tk.Button(dialog, text="Registrar y Generar Recibo", command=process, bg='#e74c3c', fg='white').pack(pady=20)

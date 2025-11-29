@@ -7,12 +7,14 @@ Módulo de base de datos para el sistema de agua potable
 import sqlite3
 import os
 from typing import List, Dict, Optional, Tuple, Any
+from datetime import datetime
 
 class DatabaseManager:
     def __init__(self, db_name: str = "agua_potable.db"):
         self.db_name = db_name
         self.initialize_database()
         self.migrate_database()
+        self.migrate_history_table()
 
     def get_connection(self) -> sqlite3.Connection:
         """Obtiene una conexión a la base de datos"""
@@ -37,8 +39,11 @@ class DatabaseManager:
                     sesion INTEGER NOT NULL DEFAULT 1 CHECK (sesion IN (1, 2, 3)),
                     vacas INTEGER DEFAULT 0,
                     inquilinos INTEGER DEFAULT 0,
-                    estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado')),
-                    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    tomas INTEGER DEFAULT 1,
+                    estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado', 'Baja', 'Suspendida')),
+                    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    fecha_alta TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    fecha_baja TIMESTAMP
                 )
             ''')
             
@@ -74,6 +79,18 @@ class DatabaseManager:
                     clave TEXT PRIMARY KEY,
                     valor TEXT,
                     fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # Tabla de historial de estatus
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS historial_estatus (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    usuario_id INTEGER NOT NULL,
+                    estado TEXT NOT NULL,
+                    fecha_movimiento TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    observaciones TEXT,
+                    FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
                 )
             ''')
             
@@ -123,6 +140,14 @@ class DatabaseManager:
             if 'sesion' not in columns: missing_columns.append('sesion')
             if 'vacas' not in columns: missing_columns.append('vacas')
             if 'inquilinos' not in columns: missing_columns.append('inquilinos')
+            if 'tomas' not in columns: missing_columns.append('tomas')
+            if 'fecha_alta' not in columns: missing_columns.append('fecha_alta')
+            
+            # También necesitamos migrar si el check de estado es antiguo, pero eso es difícil de detectar con PRAGMA.
+            # Asumiremos que si faltan columnas o si queremos asegurar la estructura, hacemos la migración.
+            # Para simplificar, si ya tenemos tomas, asumimos que la estructura es reciente, 
+            # PERO si el usuario pide actualizar estados, mejor aseguramos.
+            # Vamos a forzar migración si falta 'tomas' o 'fecha_alta'.
             
             if missing_columns:
                 print(f"Iniciando migración de base de datos. Faltan: {missing_columns}")
@@ -141,22 +166,50 @@ class DatabaseManager:
                         sesion INTEGER NOT NULL DEFAULT 1 CHECK (sesion IN (1, 2, 3)),
                         vacas INTEGER DEFAULT 0,
                         inquilinos INTEGER DEFAULT 0,
-                        estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado')),
-                        fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        tomas INTEGER DEFAULT 1,
+                        estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado', 'Baja', 'Suspendida')),
+                        fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        fecha_alta TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        fecha_baja TIMESTAMP
                     )
                 ''')
                 
                 # 3. Copiar datos
                 # Construir query dinámico basado en columnas que existían
                 cols_to_copy = ['id', 'nombre', 'direccion', 'telefono', 'email', 'estado', 'fecha_registro']
-                # Si existía sesion en la tabla vieja (caso raro de migración parcial), incluirla
                 if 'sesion' in columns: cols_to_copy.append('sesion')
+                if 'vacas' in columns: cols_to_copy.append('vacas')
+                if 'inquilinos' in columns: cols_to_copy.append('inquilinos')
                 
-                cols_str = ", ".join(cols_to_copy)
+                # Columnas destino (las mismas que origen)
+                cols_dest = list(cols_to_copy)
+                
+                # Si existían las nuevas (caso raro), las copiamos, si no, toman default
+                if 'tomas' in columns: 
+                    cols_to_copy.append('tomas')
+                    cols_dest.append('tomas')
+                else:
+                    # Si no existía, se llenará con default 1
+                    pass
+
+                if 'fecha_alta' in columns:
+                    cols_to_copy.append('fecha_alta')
+                    cols_dest.append('fecha_alta')
+                else:
+                    # Si no existía, usamos fecha_registro como fecha_alta
+                    cols_dest.append('fecha_alta')
+                    cols_to_copy.append('fecha_registro') # Usamos fecha_registro como fuente
+                
+                if 'fecha_baja' in columns:
+                    cols_to_copy.append('fecha_baja')
+                    cols_dest.append('fecha_baja')
+
+                cols_src_str = ", ".join(cols_to_copy)
+                cols_dest_str = ", ".join(cols_dest)
                 
                 cursor.execute(f'''
-                    INSERT INTO usuarios ({cols_str})
-                    SELECT {cols_str}
+                    INSERT INTO usuarios ({cols_dest_str})
+                    SELECT {cols_src_str}
                     FROM usuarios_old
                 ''')
                 
@@ -171,11 +224,64 @@ class DatabaseManager:
             conn.rollback()
         finally:
             conn.close()
+
+    def migrate_history_table(self):
+        """Asegura que exista la tabla de historial y rellena datos iniciales si está vacía"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Crear tabla si no existe (ya está en initialize, pero por si acaso en updates)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS historial_estatus (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    usuario_id INTEGER NOT NULL,
+                    estado TEXT NOT NULL,
+                    fecha_movimiento TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    observaciones TEXT,
+                    FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+                )
+            ''')
+            
+            # Verificar si está vacía
+            cursor.execute('SELECT COUNT(*) FROM historial_estatus')
+            count = cursor.fetchone()[0]
+            
+            if count == 0:
+                print("Migrando historial de estatus para usuarios existentes...")
+                # Obtener todos los usuarios
+                cursor.execute('SELECT * FROM usuarios')
+                users = cursor.fetchall()
+                
+                for u in users:
+                    # 1. Registro inicial (Activo)
+                    fecha_alta = u['fecha_alta'] or u['fecha_registro']
+                    cursor.execute('''
+                        INSERT INTO historial_estatus (usuario_id, estado, fecha_movimiento, observaciones)
+                        VALUES (?, ?, ?, ?)
+                    ''', (u['id'], 'Activo', fecha_alta, 'Registro inicial / Migración'))
+                    
+                    # 2. Si está en baja/cancelado, agregar el movimiento de baja
+                    if u['estado'] != 'Activo':
+                        fecha_baja = u['fecha_baja'] or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        cursor.execute('''
+                            INSERT INTO historial_estatus (usuario_id, estado, fecha_movimiento, observaciones)
+                            VALUES (?, ?, ?, ?)
+                        ''', (u['id'], u['estado'], fecha_baja, 'Estado actual al migrar'))
+                
+                conn.commit()
+                print("Migración de historial completada.")
+                
+        except sqlite3.Error as e:
+            print(f"Error migrando historial: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
     
     # === GESTIÓN DE USUARIOS ===
     
     def crear_usuario(self, nombre: str, sesion: int, direccion: str = "", 
-                     telefono: str = "", email: str = "", vacas: int = 0, inquilinos: int = 0) -> bool:
+                     telefono: str = "", email: str = "", vacas: int = 0, inquilinos: int = 0, tomas: int = 1, estado: str = "Activo") -> bool:
         """
         Crea un nuevo usuario
         
@@ -187,6 +293,8 @@ class DatabaseManager:
             email: Email
             vacas: Número de vacas
             inquilinos: Número de inquilinos
+            tomas: Número de tomas
+            estado: Estado inicial
             
         Returns:
             bool: True si se creó exitosamente
@@ -207,10 +315,14 @@ class DatabaseManager:
             
             # Insertar con el ID específico
             cursor.execute('''
-                INSERT INTO usuarios (id, nombre, sesion, direccion, telefono, email, vacas, inquilinos)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (nuevo_id, nombre, sesion, direccion, telefono, email, vacas, inquilinos))
+                INSERT INTO usuarios (id, nombre, sesion, direccion, telefono, email, vacas, inquilinos, tomas, estado)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (nuevo_id, nombre, sesion, direccion, telefono, email, vacas, inquilinos, tomas, estado))
             conn.commit()
+            
+            # Registrar en historial
+            self.registrar_cambio_estatus(nuevo_id, estado, observaciones="Registro inicial")
+            
             return True
         except sqlite3.Error as e:
             print(f"Error al crear usuario: {e}")
@@ -274,10 +386,79 @@ class DatabaseManager:
             conn.close()
     
     def cambiar_estado_usuario(self, usuario_id: int, estado: str) -> bool:
-        """Cambia el estado de un usuario (Activo/Cancelado)"""
-        if estado not in ['Activo', 'Cancelado']:
+        """Cambia el estado de un usuario (Activo/Cancelado/Baja/Suspendida)"""
+        if estado not in ['Activo', 'Cancelado', 'Baja', 'Suspendida']:
             return False
-        return self.actualizar_usuario(usuario_id, estado=estado)
+        
+        updates = {'estado': estado}
+        if estado in ['Cancelado', 'Baja']:
+            updates['fecha_baja'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        elif estado == 'Activo':
+            updates['fecha_baja'] = None
+            
+        if self.actualizar_usuario(usuario_id, **updates):
+            # Registrar en historial
+            self.registrar_cambio_estatus(usuario_id, estado, observaciones="Cambio de estado manual")
+            return True
+        return False
+
+    def registrar_cambio_estatus(self, usuario_id: int, estado: str, fecha: str = None, observaciones: str = ""):
+        """Registra un cambio de estatus en el historial"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            if not fecha:
+                fecha = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                
+            cursor.execute('''
+                INSERT INTO historial_estatus (usuario_id, estado, fecha_movimiento, observaciones)
+                VALUES (?, ?, ?, ?)
+            ''', (usuario_id, estado, fecha, observaciones))
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"Error registrando historial: {e}")
+        finally:
+            conn.close()
+
+    def obtener_historial_estatus(self, usuario_id: int) -> List[Dict]:
+        """Obtiene el historial de estatus de un usuario"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                SELECT * FROM historial_estatus 
+                WHERE usuario_id = ? 
+                ORDER BY fecha_movimiento
+            ''', (usuario_id,))
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def es_usuario_activo_en_fecha(self, usuario_id: int, fecha: datetime) -> bool:
+        """Determina si el usuario estaba activo en una fecha específica basado en el historial"""
+        historial = self.obtener_historial_estatus(usuario_id)
+        if not historial:
+            # Fallback: checar estado actual si no hay historial (no debería pasar tras migración)
+            u = self.buscar_usuario_por_id(usuario_id)
+            if not u: return False
+            # Asumir activo desde registro si no hay más info
+            fecha_reg = datetime.strptime(u['fecha_alta'] or u['fecha_registro'], '%Y-%m-%d %H:%M:%S')
+            return fecha >= fecha_reg if u['estado'] == 'Activo' else False
+
+        # Recorrer historial cronológicamente
+        estado_actual = 'Inactivo' # Asumimos inactivo antes del primer registro
+        
+        # Encontrar el estado vigente en la fecha dada
+        estado_vigente = 'Inactivo'
+        
+        for evento in historial:
+            fecha_evento = datetime.strptime(evento['fecha_movimiento'], '%Y-%m-%d %H:%M:%S')
+            if fecha_evento <= fecha:
+                estado_actual = evento['estado']
+            else:
+                break
+        
+        return estado_actual == 'Activo'
     
     def obtener_todos_usuarios(self, solo_activos: bool = False) -> List[Dict]:
         """Obtiene todos los usuarios"""
@@ -355,6 +536,66 @@ class DatabaseManager:
         finally:
             conn.close()
     
+    def obtener_meses_adeudo(self, usuario_id: int, anio: int) -> List[int]:
+        """
+        Calcula los meses que el usuario debe pagar en un año específico,
+        basado en su historial de actividad y pagos realizados.
+        """
+        # 1. Obtener meses pagados
+        pagos = self.obtener_pagos_usuario_anio(usuario_id, anio)
+        pagos_set = set(pagos)
+        
+        # 2. Obtener historial
+        historial = self.obtener_historial_estatus(usuario_id)
+        
+        meses_adeudo = []
+        
+        # Si no hay historial, usamos la lógica simple (activo todo el año o desde fecha registro)
+        if not historial:
+            u = self.buscar_usuario_por_id(usuario_id)
+            if not u: return []
+            
+            fecha_reg = datetime.strptime(u['fecha_alta'] or u['fecha_registro'], '%Y-%m-%d %H:%M:%S')
+            mes_inicio = 1
+            if fecha_reg.year == anio:
+                mes_inicio = fecha_reg.month
+            elif fecha_reg.year > anio:
+                return [] # Registrado después
+                
+            mes_fin = 12
+            if anio == datetime.now().year:
+                mes_fin = datetime.now().month
+            
+            if u['estado'] != 'Activo' and u['fecha_baja']:
+                fecha_baja = datetime.strptime(u['fecha_baja'], '%Y-%m-%d %H:%M:%S')
+                if fecha_baja.year == anio:
+                    mes_fin = min(mes_fin, fecha_baja.month)
+                elif fecha_baja.year < anio:
+                    return [] # Baja antes de este año
+
+            for m in range(mes_inicio, mes_fin + 1):
+                if m not in pagos_set:
+                    meses_adeudo.append(m)
+            return meses_adeudo
+
+        # Lógica con historial
+        # Construir mapa de estado por mes
+        meses_activos = []
+        for m in range(1, 13):
+            # Verificar el primer día del mes (o último, depende de regla de negocio. Usaremos día 15 para promedio)
+            fecha_mes = datetime(anio, m, 15)
+            if fecha_mes > datetime.now():
+                continue # Meses futuros no se deben (a menos que sea prepago, pero aquí calculamos deuda)
+                
+            if self.es_usuario_activo_en_fecha(usuario_id, fecha_mes):
+                meses_activos.append(m)
+        
+        for m in meses_activos:
+            if m not in pagos_set:
+                meses_adeudo.append(m)
+                
+        return meses_adeudo
+
     def registrar_pago(self, usuario_id: int, detalles: List[Dict], observaciones: str = "") -> int:
         """
         Registra un pago completo con detalles flexibles
