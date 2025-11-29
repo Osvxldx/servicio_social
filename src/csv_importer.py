@@ -233,7 +233,7 @@ class ImporterGUI:
         # Botón cerrar
         close_btn = tk.Button(
             main_frame,
-            text="Cerrar",
+            text="Volver al Menú",
             command=self.root.destroy,
             bg='#95a5a6',
             fg='white',

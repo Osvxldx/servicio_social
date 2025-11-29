@@ -25,6 +25,15 @@ class ConfigurationWindow:
         
         # Variables
         self.rates_vars = {}
+        self.committee_vars = {}
+        
+        # Variables para cambio de PIN
+        self.current_pin_var = tk.StringVar()
+        self.new_pin_var = tk.StringVar()
+        self.confirm_pin_var = tk.StringVar()
+        
+        # Variable para nueva cuota
+        self.new_fee_var = tk.StringVar()
         
         # Configurar la interfaz
         self.setup_ui()
@@ -98,222 +107,140 @@ class ConfigurationWindow:
         fee_frame = tk.LabelFrame(parent, text="Cuota Mensual", font=('Arial', 12, 'bold'))
         fee_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        # Frame interno
+        # Contenedor interno
         inner_frame = tk.Frame(fee_frame)
         inner_frame.pack(fill=tk.X, padx=10, pady=10)
         
         # Cuota actual
-        current_frame = tk.Frame(inner_frame)
-        current_frame.pack(fill=tk.X, pady=(0, 10))
+        tk.Label(inner_frame, text="Cuota Actual:", font=('Arial', 11)).pack(side=tk.LEFT, padx=5)
+        self.current_fee_label = tk.Label(inner_frame, text="$0.00", font=('Arial', 11, 'bold'), fg='#27ae60')
+        self.current_fee_label.pack(side=tk.LEFT, padx=5)
         
-        tk.Label(current_frame, text="Cuota actual:", font=('Arial', 11)).pack(side=tk.LEFT)
-        
-        self.current_fee_label = tk.Label(
-            current_frame,
-            text="$0.00",
-            font=('Arial', 11, 'bold'),
-            fg='#27ae60'
-        )
-        self.current_fee_label.pack(side=tk.LEFT, padx=(10, 0))
+        # Separador
+        ttk.Separator(inner_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=20)
         
         # Nueva cuota
-        new_frame = tk.Frame(inner_frame)
-        new_frame.pack(fill=tk.X, pady=5)
+        tk.Label(inner_frame, text="Nueva Cuota:", font=('Arial', 11)).pack(side=tk.LEFT, padx=5)
+        tk.Entry(inner_frame, textvariable=self.new_fee_var, width=10).pack(side=tk.LEFT, padx=5)
         
-        tk.Label(new_frame, text="Nueva cuota:", font=('Arial', 11)).pack(side=tk.LEFT)
-        
-        self.new_fee_var = tk.StringVar()
-        self.new_fee_entry = tk.Entry(
-            new_frame,
-            textvariable=self.new_fee_var,
-            font=('Arial', 11),
-            width=15
-        )
-        self.new_fee_entry.pack(side=tk.LEFT, padx=(10, 5))
-        
-        tk.Label(new_frame, text="$", font=('Arial', 11)).pack(side=tk.LEFT)
-        
-        # Botón actualizar cuota
-        update_fee_btn = tk.Button(
-            inner_frame,
-            text="Actualizar Cuota Mensual",
+        tk.Button(
+            inner_frame, 
+            text="Actualizar", 
             command=self.update_monthly_fee,
             bg='#3498db',
-            fg='white',
-            font=('Arial', 11, 'bold')
-        )
-        update_fee_btn.pack(pady=10)
-        
-        # Información adicional
-        info_label = tk.Label(
-            inner_frame,
-            text="La nueva cuota se aplicará a partir del próximo pago registrado.",
-            font=('Arial', 9),
-            fg='#7f8c8d',
-            wraplength=400
-        )
-        info_label.pack(pady=(0, 5))
-
+            fg='white'
+        ).pack(side=tk.LEFT, padx=10)
+    
     def create_rates_fines_section(self, parent):
         """Crea la sección de tarifas y multas"""
-        frame = tk.LabelFrame(parent, text="Tarifas y Multas", font=('Arial', 12, 'bold'))
-        frame.pack(fill=tk.X, padx=10, pady=10)
+        rates_frame = tk.LabelFrame(parent, text="Tarifas y Multas", font=('Arial', 12, 'bold'))
+        rates_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        inner_frame = tk.Frame(frame)
-        inner_frame.pack(fill=tk.X, padx=10, pady=10)
+        # Grid para los campos
+        grid_frame = tk.Frame(rates_frame)
+        grid_frame.pack(fill=tk.X, padx=10, pady=10)
         
+        # Definición de campos
         fields = [
-            ("Costo por Vaca:", "costo_vacas"),
-            ("Costo por Inquilino:", "costo_inquilinos"),
-            ("Costo Cooperación:", "costo_cooperacion"),
-            ("Costo Toma Nueva:", "costo_toma_nueva"),
-            ("Multa por Retraso:", "multa_retraso"),
-            ("Multa por Inasistencia:", "multa_inasistencia")
+            ('Costo Vacas:', 'costo_vacas'),
+            ('Costo Inquilinos:', 'costo_inquilinos'),
+            ('Cooperación:', 'costo_cooperacion'),
+            ('Costo Toma Nueva:', 'costo_toma_nueva'),
+            ('Multa por Retraso:', 'multa_retraso'),
+            ('Multa Inasistencia:', 'multa_inasistencia')
         ]
         
-        self.rates_vars = {}
-        
         for i, (label_text, key) in enumerate(fields):
-            row_frame = tk.Frame(inner_frame)
-            row_frame.pack(fill=tk.X, pady=5)
+            row = i // 2
+            col = (i % 2) * 3 # 0, 3
             
-            tk.Label(row_frame, text=label_text, width=20, anchor='w').pack(side=tk.LEFT)
+            tk.Label(grid_frame, text=label_text, font=('Arial', 10)).grid(row=row, column=col, sticky='e', padx=5, pady=5)
             
             var = tk.StringVar()
             self.rates_vars[key] = var
+            entry = tk.Entry(grid_frame, textvariable=var, width=10)
+            entry.grid(row=row, column=col+1, sticky='w', padx=5, pady=5)
             
-            entry = tk.Entry(row_frame, textvariable=var, width=10)
-            entry.pack(side=tk.LEFT, padx=5)
+            # Botón guardar individual
+            tk.Button(
+                grid_frame,
+                text="Guardar",
+                command=lambda k=key, v=var: self.save_rate(k, v),
+                bg='#bdc3c7',
+                font=('Arial', 8)
+            ).grid(row=row, column=col+2, sticky='w', padx=2, pady=5)
             
-            tk.Label(row_frame, text="$").pack(side=tk.LEFT)
-            
-        btn = tk.Button(inner_frame, text="Actualizar Tarifas", command=self.update_rates, bg='#3498db', fg='white')
-        btn.pack(pady=10)
+        grid_frame.columnconfigure(1, weight=1)
+        grid_frame.columnconfigure(4, weight=1)
 
-    def update_rates(self):
+    def save_rate(self, key, var):
+        """Guarda una tarifa individual"""
         try:
+            value = float(var.get())
             db = get_db_manager()
-            for key, var in self.rates_vars.items():
-                value = var.get().strip()
-                if value:
-                    try:
-                        float(value) # Validate number
-                        db.actualizar_configuracion(key, value)
-                    except ValueError:
-                        messagebox.showwarning("Error", f"Valor inválido para {key}")
-                        return
-            messagebox.showinfo("Éxito", "Tarifas actualizadas")
-        except Exception as e:
-            messagebox.showerror("Error", f"Error: {e}")
-    
+            if db.actualizar_configuracion(key, str(value)):
+                messagebox.showinfo("Éxito", "Tarifa actualizada")
+            else:
+                messagebox.showerror("Error", "No se pudo actualizar")
+        except ValueError:
+            messagebox.showerror("Error", "Valor inválido")
+
     def create_committee_info_section(self, parent):
         """Crea la sección de información del comité"""
-        # Frame de la sección
         info_frame = tk.LabelFrame(parent, text="Información del Comité", font=('Arial', 12, 'bold'))
         info_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        # Frame interno
-        inner_frame = tk.Frame(info_frame)
-        inner_frame.pack(fill=tk.X, padx=10, pady=10)
+        # Grid
+        grid_frame = tk.Frame(info_frame)
+        grid_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        # Campos de información
         fields = [
-            ("Nombre del Comité:", "committee_name"),
-            ("Dirección:", "committee_address"),
-            ("Teléfono:", "committee_phone"),
-            ("Presidente:", "committee_president"),
-            ("Tesorero:", "committee_treasurer")
+            ('Nombre del Comité:', 'committee_name'),
+            ('Dirección:', 'committee_address'),
+            ('Teléfono:', 'committee_phone'),
+            ('Presidente:', 'committee_president'),
+            ('Tesorero:', 'committee_treasurer')
         ]
         
-        self.committee_vars = {}
-        
-        for label_text, var_name in fields:
-            field_frame = tk.Frame(inner_frame)
-            field_frame.pack(fill=tk.X, pady=3)
-            
-            label = tk.Label(field_frame, text=label_text, font=('Arial', 10), width=18, anchor='w')
-            label.pack(side=tk.LEFT)
+        for i, (label_text, key) in enumerate(fields):
+            tk.Label(grid_frame, text=label_text, font=('Arial', 10)).grid(row=i, column=0, sticky='e', padx=5, pady=5)
             
             var = tk.StringVar()
-            entry = tk.Entry(field_frame, textvariable=var, font=('Arial', 10))
-            entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+            self.committee_vars[key] = var
+            tk.Entry(grid_frame, textvariable=var, width=40).grid(row=i, column=1, sticky='w', padx=5, pady=5)
             
-            self.committee_vars[var_name] = var
-        
-        # Botón actualizar información
-        update_info_btn = tk.Button(
-            inner_frame,
-            text="Actualizar Información",
+        # Botón guardar todo
+        tk.Button(
+            info_frame,
+            text="Guardar Información del Comité",
             command=self.update_committee_info,
-            bg='#9b59b6',
-            fg='white',
-            font=('Arial', 11, 'bold')
-        )
-        update_info_btn.pack(pady=(15, 5))
-    
+            bg='#3498db',
+            fg='white'
+        ).pack(pady=10)
+
     def create_security_tab(self):
-        """Crea la pestaña de configuración de seguridad"""
-        # Frame para la pestaña
+        """Crea la pestaña de seguridad"""
         security_frame = tk.Frame(self.notebook)
         self.notebook.add(security_frame, text="Seguridad")
         
-        # Frame para cambio de PIN
+        # Frame Cambio de PIN
         pin_frame = tk.LabelFrame(security_frame, text="Cambio de PIN de Acceso", font=('Arial', 12, 'bold'))
         pin_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        # Frame interno
         inner_frame = tk.Frame(pin_frame)
         inner_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        # PIN actual
-        current_pin_frame = tk.Frame(inner_frame)
-        current_pin_frame.pack(fill=tk.X, pady=5)
+        # Campos PIN
+        tk.Label(inner_frame, text="PIN actual:").grid(row=0, column=0, sticky='e', padx=5, pady=5)
+        tk.Entry(inner_frame, textvariable=self.current_pin_var, show="*").grid(row=0, column=1, sticky='w', padx=5, pady=5)
         
-        tk.Label(current_pin_frame, text="PIN actual:", font=('Arial', 11), width=15, anchor='w').pack(side=tk.LEFT)
+        tk.Label(inner_frame, text="Nuevo PIN:").grid(row=1, column=0, sticky='e', padx=5, pady=5)
+        tk.Entry(inner_frame, textvariable=self.new_pin_var, show="*").grid(row=1, column=1, sticky='w', padx=5, pady=5)
         
-        self.current_pin_var = tk.StringVar()
-        current_pin_entry = tk.Entry(
-            current_pin_frame,
-            textvariable=self.current_pin_var,
-            show="*",
-            font=('Arial', 11),
-            width=15
-        )
-        current_pin_entry.pack(side=tk.LEFT, padx=(5, 0))
+        tk.Label(inner_frame, text="Confirmar PIN:").grid(row=2, column=0, sticky='e', padx=5, pady=5)
+        tk.Entry(inner_frame, textvariable=self.confirm_pin_var, show="*").grid(row=2, column=1, sticky='w', padx=5, pady=5)
         
-        # Nuevo PIN
-        new_pin_frame = tk.Frame(inner_frame)
-        new_pin_frame.pack(fill=tk.X, pady=5)
-        
-        tk.Label(new_pin_frame, text="Nuevo PIN:", font=('Arial', 11), width=15, anchor='w').pack(side=tk.LEFT)
-        
-        self.new_pin_var = tk.StringVar()
-        new_pin_entry = tk.Entry(
-            new_pin_frame,
-            textvariable=self.new_pin_var,
-            show="*",
-            font=('Arial', 11),
-            width=15
-        )
-        new_pin_entry.pack(side=tk.LEFT, padx=(5, 0))
-        
-        # Confirmar nuevo PIN
-        confirm_pin_frame = tk.Frame(inner_frame)
-        confirm_pin_frame.pack(fill=tk.X, pady=5)
-        
-        tk.Label(confirm_pin_frame, text="Confirmar PIN:", font=('Arial', 11), width=15, anchor='w').pack(side=tk.LEFT)
-        
-        self.confirm_pin_var = tk.StringVar()
-        confirm_pin_entry = tk.Entry(
-            confirm_pin_frame,
-            textvariable=self.confirm_pin_var,
-            show="*",
-            font=('Arial', 11),
-            width=15
-        )
-        confirm_pin_entry.pack(side=tk.LEFT, padx=(5, 0))
-        
-        # Botón cambiar PIN
+        # Botón cambiar
         change_pin_btn = tk.Button(
             inner_frame,
             text="Cambiar PIN",
@@ -322,7 +249,7 @@ class ConfigurationWindow:
             fg='white',
             font=('Arial', 11, 'bold')
         )
-        change_pin_btn.pack(pady=15)
+        change_pin_btn.grid(row=3, column=0, columnspan=2, pady=15)
         
         # Información de seguridad
         security_info = tk.Label(
@@ -334,7 +261,7 @@ class ConfigurationWindow:
             wraplength=500,
             justify=tk.LEFT
         )
-        security_info.pack(pady=(0, 10))
+        security_info.grid(row=4, column=0, columnspan=2, pady=(0, 10))
         
         # Frame para respaldo y restauración
         backup_frame = tk.LabelFrame(security_frame, text="Respaldo de Datos", font=('Arial', 12, 'bold'))
@@ -381,7 +308,7 @@ class ConfigurationWindow:
         # Botón cerrar
         close_btn = tk.Button(
             buttons_frame,
-            text="Cerrar",
+            text="Volver al Menú",
             command=self.root.destroy,
             bg='#95a5a6',
             fg='white',
@@ -542,7 +469,7 @@ class ConfigurationWindow:
                 title="Guardar respaldo como...",
                 defaultextension=".db",
                 filetypes=[("Base de datos SQLite", "*.db"), ("Todos los archivos", "*.*")],
-                initialvalue=default_name
+                initialfile=default_name
             )
             
             if backup_path:

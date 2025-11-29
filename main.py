@@ -604,7 +604,7 @@ INSTRUCCIONES DE USO - SISTEMA DE AGUA POTABLE
         # Botón cerrar
         close_btn = tk.Button(
             instructions_window,
-            text="Cerrar",
+            text="Volver",
             command=instructions_window.destroy,
             bg='#95a5a6',
             fg='white',

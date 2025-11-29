@@ -9,21 +9,20 @@ from datetime import datetime
 from typing import Dict, Optional, List
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, mm
+from reportlab.lib.units import inch, mm, cm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, Frame, PageTemplate, BaseDocTemplate, FrameBreak
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT, TA_JUSTIFY
 from .database import get_db_manager
 
 class ReceiptGenerator:
     def __init__(self):
         self.styles = getSampleStyleSheet()
         self.colors = {
-            'primary': colors.Color(0.05, 0.25, 0.50),    # Azul marino profundo
+            'primary': colors.black,
             'text': colors.black,
             'gray': colors.Color(0.50, 0.50, 0.50),
             'light_gray': colors.Color(0.90, 0.90, 0.90),
-            'blue_header': colors.Color(0.8, 0.9, 1.0),   # Azul claro para headers
         }
         self.create_custom_styles()
         self.receipts_dir = "recibos"
@@ -34,8 +33,18 @@ class ReceiptGenerator:
         self.title_style = ParagraphStyle(
             'ReceiptTitle',
             parent=self.styles['Heading1'],
-            fontSize=12,
-            leading=14,
+            fontSize=14,
+            leading=16,
+            alignment=TA_CENTER,
+            textColor=self.colors['primary'],
+            fontName='Helvetica-Bold'
+        )
+        
+        self.subtitle_style = ParagraphStyle(
+            'ReceiptSubtitle',
+            parent=self.styles['Normal'],
+            fontSize=10,
+            leading=12,
             alignment=TA_CENTER,
             textColor=self.colors['primary'],
             fontName='Helvetica-Bold'
@@ -44,17 +53,11 @@ class ReceiptGenerator:
         self.normal_style = ParagraphStyle(
             'ReceiptNormal',
             parent=self.styles['Normal'],
-            fontSize=7,
-            leading=9,
+            fontSize=9,
+            leading=11,
             alignment=TA_LEFT,
             textColor=self.colors['text'],
             fontName='Helvetica'
-        )
-        
-        self.center_style = ParagraphStyle(
-            'ReceiptCenter',
-            parent=self.normal_style,
-            alignment=TA_CENTER
         )
         
         self.bold_style = ParagraphStyle(
@@ -63,19 +66,25 @@ class ReceiptGenerator:
             fontName='Helvetica-Bold'
         )
         
-        self.header_style = ParagraphStyle(
+        self.center_style = ParagraphStyle(
+            'ReceiptCenter',
+            parent=self.normal_style,
+            alignment=TA_CENTER
+        )
+        
+        self.table_header_style = ParagraphStyle(
             'TableHeader',
             parent=self.normal_style,
             fontName='Helvetica-Bold',
             alignment=TA_CENTER,
-            fontSize=6
+            fontSize=8
         )
-
-        self.small_style = ParagraphStyle(
-            'ReceiptSmall',
+        
+        self.table_cell_style = ParagraphStyle(
+            'TableCell',
             parent=self.normal_style,
-            fontSize=6,
-            leading=8
+            alignment=TA_CENTER,
+            fontSize=8
         )
 
     def ensure_directories(self):
@@ -91,36 +100,29 @@ class ReceiptGenerator:
                 print(f"No se encontró el pago con ID {pago_id}")
                 return None
             
-            # Obtener configuración actual para cálculos
-            self.config = {
-                'cuota_mensual': float(db.obtener_configuracion('cuota_mensual') or 70.0),
-            }
-            
-            # Nombre de archivo
-            fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
-            user_num = pago_data.get('usuario_id', 'SN')
-            filename = f"recibo_{user_num}_{fecha}.pdf"
+            # Nombre de archivo fijo
+            filename = "recibo_temporal.pdf"
             filepath = os.path.join(self.receipts_dir, filename)
             
-            # Configurar documento en Portrait (Vertical)
+            # Configurar documento
             doc = BaseDocTemplate(
                 filepath,
                 pagesize=letter,
-                rightMargin=0.5*inch,
-                leftMargin=0.5*inch,
-                topMargin=0.5*inch,
-                bottomMargin=0.5*inch
+                rightMargin=0.5*cm,
+                leftMargin=0.5*cm,
+                topMargin=0.5*cm,
+                bottomMargin=0.5*cm
             )
             
-            # Crear frames para dos copias (Arriba y Abajo)
+            # Definir frames para media carta (superior e inferior)
             page_width, page_height = letter
-            frame_height = (page_height - 1.5*inch) / 2
+            half_height = page_height / 2
             
             frame_top = Frame(
                 doc.leftMargin, 
-                doc.bottomMargin + frame_height + 0.5*inch, 
-                page_width - 1*inch, 
-                frame_height,
+                half_height + 0.5*cm, 
+                page_width - doc.leftMargin - doc.rightMargin, 
+                half_height - 1.5*cm,
                 id='user_copy',
                 showBoundary=0
             )
@@ -128,8 +130,8 @@ class ReceiptGenerator:
             frame_bottom = Frame(
                 doc.leftMargin, 
                 doc.bottomMargin, 
-                page_width - 1*inch, 
-                frame_height,
+                page_width - doc.leftMargin - doc.rightMargin, 
+                half_height - 1.5*cm,
                 id='admin_copy',
                 showBoundary=0
             )
@@ -138,13 +140,14 @@ class ReceiptGenerator:
             doc.addPageTemplates([template])
             
             # Construir contenido
-            content_user = self.build_receipt_content(pago_data, "USUARIO")
-            content_admin = self.build_receipt_content(pago_data, "COMITÉ")
-            
             story = []
-            story.extend(content_user)
-            story.append(FrameBreak()) # Saltar al siguiente frame (abajo)
-            story.extend(content_admin)
+            
+            # Copia Usuario
+            story.extend(self.build_receipt_copy(pago_data, "USUARIO"))
+            story.append(FrameBreak())
+            
+            # Copia Comité
+            story.extend(self.build_receipt_copy(pago_data, "COMITÉ"))
             
             doc.build(story)
             return filepath
@@ -155,200 +158,199 @@ class ReceiptGenerator:
             traceback.print_exc()
             return None
 
-    def build_receipt_content(self, pago_data: Dict, copy_type: str) -> list:
+    def build_receipt_copy(self, pago_data: Dict, copy_type: str) -> list:
         elements = []
-        elements.extend(self.build_header(pago_data, copy_type))
-        elements.extend(self.build_body(pago_data))
-        elements.extend(self.build_footer(copy_type))
-        return elements
-
-    def build_header(self, pago_data: Dict, copy_type: str) -> list:
+        
+        # --- ENCABEZADO ---
         # Logo
         logo_path = os.path.join("assets", "logo.jpg")
+        logo_img = None
         if os.path.exists(logo_path):
-            img = Image(logo_path, width=0.8*inch, height=0.8*inch)
-        else:
-            img = Paragraph("💧", self.title_style)
-            
-        # Info Empresa
-        empresa_info = [
+            logo_img = Image(logo_path, width=2.5*cm, height=2.5*cm)
+        
+        # Textos del encabezado
+        header_text = [
             Paragraph("COMITÉ DE AGUA POTABLE Y ALCANTARILLADO", self.title_style),
-            Paragraph("DEL BARRIO DE SAN ANTONIO TECAMACHALCO, PUE.", self.title_style),
+            Paragraph("DEL BARRIO DE SAN ANTONIO TECAMACHALCO, PUE.", self.subtitle_style),
+            Paragraph("R.F.C. CAP980115194", self.normal_style),
+            Spacer(1, 5),
+            Paragraph(f"RECIBO DE PAGO - COPIA {copy_type}", self.bold_style)
         ]
         
-        # Tabla Header Superior
-        data = [[img, empresa_info]]
-        t = Table(data, colWidths=[1.0*inch, 5.0*inch])
-        t.setStyle(TableStyle([
-            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ]))
-        
-        # Info Usuario y Fecha
+        # Tabla de encabezado (Logo | Texto | Folio/Fecha)
         fecha_pago = datetime.strptime(pago_data['fecha_pago'], '%Y-%m-%d %H:%M:%S')
-        
-        # Fila 1: Usuario No | Fecha
-        # Fila 2: Nombre | Folio
-        # Fila 3: Tomas | Direccion
-        
-        user_info = [
-            [
-                Paragraph(f"<b>USUARIO No.</b> {pago_data['usuario_id']}", self.normal_style),
-                "",
-                Paragraph(f"<b>FECHA:</b> {fecha_pago.strftime('%d-%b-%y')}", self.normal_style)
-            ],
-            [
-                Paragraph(f"<b>NOMBRE:</b> {pago_data['nombre']}", self.normal_style),
-                "",
-                Paragraph(f"<b>FOLIO:</b> {str(pago_data['id']).zfill(5)}", ParagraphStyle('RedFolio', parent=self.normal_style, textColor=colors.red, alignment=TA_RIGHT))
-            ],
-            [
-                Paragraph(f"<b>TOMAS:</b> 0 <b>HIDRANTE</b>", self.normal_style),
-                "",
-                Paragraph(f"{pago_data.get('direccion', '')}", self.normal_style)
-            ]
+        folio_fecha = [
+            Paragraph(f"<b>FOLIO:</b> {pago_data['id']:06d}", self.normal_style),
+            Paragraph(f"<b>FECHA:</b> {fecha_pago.strftime('%d/%m/%Y')}", self.normal_style),
+            Paragraph(f"<b>HORA:</b> {fecha_pago.strftime('%H:%M')}", self.normal_style)
         ]
         
-        t_info = Table(user_info, colWidths=[3.0*inch, 1.0*inch, 3.0*inch])
-        t_info.setStyle(TableStyle([
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('LINEBELOW', (0,0), (-1,0), 0.5, colors.black), # Linea bajo usuario/fecha
-            ('LINEBELOW', (0,1), (-1,1), 0.5, colors.black), # Linea bajo nombre/folio
-            ('ALIGN', (2,1), (2,1), 'RIGHT'), # Folio a la derecha
-        ]))
-        
-        return [t, Spacer(1, 5), t_info, Spacer(1, 5)]
-
-    def build_body(self, pago_data: Dict) -> list:
-        detalles = pago_data.get('detalles', [])
-        
-        # Cálculos
-        importe_cuota = sum(d['precio'] for d in detalles if 'Mensualidad' in d['concepto'])
-        importe_vacas = sum(d['precio'] for d in detalles if 'Vacas' in d['concepto'])
-        importe_inquilinos = sum(d['precio'] for d in detalles if 'Inquilinos' in d['concepto'])
-        multa_inasistencia = sum(d['precio'] for d in detalles if 'Inasistencia' in d['concepto'])
-        cooperaciones = sum(d['precio'] for d in detalles if 'Cooperación' in d['concepto'])
-        toma_nueva = sum(d['precio'] for d in detalles if 'Toma Nueva' in d['concepto'])
-        
-        meses_pagados = [d for d in detalles if d['mes'] and 'Mensualidad' in d['concepto']]
-        meses_pagados.sort(key=lambda x: x['mes'])
-        num_meses = len(meses_pagados)
-        
-        # Texto de meses
-        if meses_pagados:
-            first = self.get_month_name(meses_pagados[0]['mes'])
-            last = self.get_month_name(meses_pagados[-1]['mes'])
-            year = meses_pagados[0]['anio']
-            if len(meses_pagados) == 1:
-                periodo_txt = f"{first.upper()} DE {year}"
-            else:
-                periodo_txt = f"{first.upper()} A {last.upper()} DE {year}"
-        else:
-            periodo_txt = ""
-
-        # Definición de Columnas y Anchos
-        col_widths = [
-            1.8*inch, # Concepto
-            0.7*inch, # Cuota x Toma
-            0.7*inch, # Forma Pago
-            0.5*inch, # Vacas
-            0.6*inch, # Inquilinos
-            0.7*inch, # Inasistencia
-            0.8*inch, # Cooperaciones
-            0.7*inch, # Toma Nueva
-            0.8*inch  # Total
-        ]
-        
-        # Headers
-        headers = [
-            Paragraph("CONCEPTO", self.header_style),
-            Paragraph("CUOTA X<br/>TOMA", self.header_style),
-            Paragraph("FORMA DE<br/>PAGO<br/>Mensual", self.header_style),
-            Paragraph("VACAS", self.header_style),
-            Paragraph("INQUILINOS", self.header_style),
-            Paragraph("INASISTENCIA", self.header_style),
-            Paragraph("COOPERACION<br/>ES", self.header_style),
-            Paragraph("TOMA NUEVA", self.header_style),
-            Paragraph("TOTAL A<br/>PAGAR", self.header_style)
-        ]
-        
-        # Fila 1: Precios Unitarios / Cantidades
-        row1 = [
-            "", # Concepto vacio
-            Paragraph(f"${self.config['cuota_mensual']:.2f}", self.center_style),
-            Paragraph(str(num_meses), self.center_style),
-            Paragraph(str(pago_data.get('vacas', 0)), self.center_style),
-            Paragraph(str(pago_data.get('inquilinos', 0)), self.center_style),
-            "", "", "", "" # Resto vacio
-        ]
-        
-        # Fila 2: Importes
-        row2 = [
-            Paragraph("PAGO POR BOMBEO Y DISTRIBUCION<br/>DE AGUA POTABLE", self.bold_style),
-            Paragraph(f"${importe_cuota:.2f}", self.center_style),
-            Paragraph(f"${importe_cuota:.2f}", self.center_style), # Repite importe en forma pago? Segun imagen parece que si o vacio. Pondremos el total de cuota.
-            Paragraph(f"${importe_vacas:.2f}", self.center_style),
-            Paragraph(f"${importe_inquilinos:.2f}", self.center_style),
-            Paragraph(f"${multa_inasistencia:.2f}", self.center_style),
-            Paragraph(f"${cooperaciones:.2f}", self.center_style),
-            Paragraph(f"${toma_nueva:.2f}", self.center_style),
-            Paragraph(f"${pago_data['total']:.2f}", self.bold_style)
-        ]
-        
-        # Fila 3: Periodo
-        row3 = [
-            Paragraph(f"De: {periodo_txt}", self.normal_style),
-            "", "", "", "", "", "", "", ""
-        ]
-        
-        # Fila Total (Footer de tabla)
-        row_total = [
-            "", "", "", "", "", "", 
-            Paragraph("TOTAL", self.bold_style),
-            "",
-            Paragraph(f"${pago_data['total']:.2f}", self.bold_style)
-        ]
-        
-        data = [headers, row1, row2, row3, row_total]
-        
-        t = Table(data, colWidths=col_widths)
-        t.setStyle(TableStyle([
-            ('GRID', (0,0), (-1,-2), 0.5, colors.black), # Grid completo excepto ultima fila
-            ('BOX', (0,0), (-1,-1), 1, colors.black), # Borde exterior
-            ('BACKGROUND', (0,0), (-1,0), self.colors['blue_header']), # Header azul
+        header_data = [[logo_img if logo_img else "", header_text, folio_fecha]]
+        t_header = Table(header_data, colWidths=[3*cm, 12*cm, 4*cm])
+        t_header.setStyle(TableStyle([
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('ALIGN', (0,2), (0,3), 'LEFT'), # Concepto alineado izquierda
-            ('SPAN', (0,1), (0,1)), # Span celda vacia concepto row1? No, mejor dejarla
-            ('LINEBELOW', (0,3), (-1,3), 1, colors.black), # Linea antes del total
-            ('ALIGN', (-1,-1), (-1,-1), 'RIGHT'), # Total alineado derecha
+            ('LEFTPADDING', (0,0), (-1,-1), 2),
+            ('RIGHTPADDING', (0,0), (-1,-1), 2),
         ]))
+        elements.append(t_header)
+        elements.append(Spacer(1, 10))
         
-        return [t]
-
-    def build_footer(self, copy_type: str) -> list:
-        firma_data = [
-            [Spacer(1, 20), Spacer(1, 20)],
-            ["_______________________", "_______________________"],
-            ["CARLOS LOPEZ SANTOS", "SELLO"],
-            [
-                Paragraph("NOTA: 1.- ES NECESARIO CONSERVAR ESTE COMPROBANTE, DEBERA PRESENTARLO EN SU PROXIMO PAGO PARA CUALQUIER ACLARACIÓN.<br/>2.- EL PAGO DE ESTE RECIBO NO TE LIBERA DE DEUDAS ANTERIORES.", self.small_style),
-                Paragraph(copy_type, ParagraphStyle('CopyType', parent=self.bold_style, alignment=TA_RIGHT, textColor=colors.red))
-            ]
+        # --- DATOS DEL USUARIO ---
+        user_data = [
+            [Paragraph(f"<b>USUARIO No.:</b> {pago_data['usuario_id']}", self.normal_style),
+             Paragraph(f"<b>NOMBRE:</b> {pago_data['nombre']}", self.normal_style)],
+            [Paragraph(f"<b>DIRECCIÓN:</b> {pago_data['direccion']}", self.normal_style),
+             ""] # Span para dirección
         ]
         
-        t = Table(firma_data, colWidths=[4.0*inch, 3.0*inch])
-        t.setStyle(TableStyle([
+        t_user = Table(user_data, colWidths=[6*cm, 13*cm])
+        t_user.setStyle(TableStyle([
+            ('SPAN', (1,1), (-1,1)), # Unir celdas de dirección
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ]))
+        elements.append(t_user)
+        elements.append(Spacer(1, 10))
+        
+        # --- TABLA DE CONCEPTOS ---
+        # Columnas: CONCEPTO | CUOTA | VACAS | INQUILINOS | INASISTENCIA | COOP | TOMA N | TOTAL
+        headers = [
+            Paragraph("CONCEPTO", self.table_header_style),
+            Paragraph("CUOTA X TOMA", self.table_header_style),
+            Paragraph("VACAS", self.table_header_style),
+            Paragraph("INQUILINOS", self.table_header_style),
+            Paragraph("INASISTENCIA", self.table_header_style),
+            Paragraph("COOPERACIONES", self.table_header_style),
+            Paragraph("TOMA NUEVA", self.table_header_style),
+            Paragraph("TOTAL", self.table_header_style)
+        ]
+        
+        # Procesar detalles para llenar la tabla
+        rows = []
+        detalles = pago_data['detalles']
+        
+        # Organizar datos para la tabla
+        meses_procesados = {}
+        extras = {'cooperacion': 0, 'toma_nueva': 0, 'inasistencia': 0}
+        
+        for d in detalles:
+            concepto = d['concepto'].lower()
+            precio = d['precio']
+            
+            if 'mensualidad' in concepto or 'recargo' in concepto:
+                # Extraer mes si es posible
+                mes_str = "PAGO"
+                if 'enero' in concepto: mes_str = "ENERO"
+                elif 'febrero' in concepto: mes_str = "FEBRERO"
+                elif 'marzo' in concepto: mes_str = "MARZO"
+                elif 'abril' in concepto: mes_str = "ABRIL"
+                elif 'mayo' in concepto: mes_str = "MAYO"
+                elif 'junio' in concepto: mes_str = "JUNIO"
+                elif 'julio' in concepto: mes_str = "JULIO"
+                elif 'agosto' in concepto: mes_str = "AGOSTO"
+                elif 'septiembre' in concepto: mes_str = "SEPTIEMBRE"
+                elif 'octubre' in concepto: mes_str = "OCTUBRE"
+                elif 'noviembre' in concepto: mes_str = "NOVIEMBRE"
+                elif 'diciembre' in concepto: mes_str = "DICIEMBRE"
+                
+                if mes_str not in meses_procesados:
+                    meses_procesados[mes_str] = {'cuota': 0, 'vacas': 0, 'inquilinos': 0, 'total': 0}
+                
+                meses_procesados[mes_str]['cuota'] += precio
+                meses_procesados[mes_str]['total'] += precio
+                
+            elif 'vacas' in concepto:
+                key = list(meses_procesados.keys())[-1] if meses_procesados else "VARIOS"
+                if key not in meses_procesados: meses_procesados[key] = {'cuota': 0, 'vacas': 0, 'inquilinos': 0, 'total': 0}
+                meses_procesados[key]['vacas'] += precio
+                meses_procesados[key]['total'] += precio
+                
+            elif 'inquilinos' in concepto:
+                key = list(meses_procesados.keys())[-1] if meses_procesados else "VARIOS"
+                if key not in meses_procesados: meses_procesados[key] = {'cuota': 0, 'vacas': 0, 'inquilinos': 0, 'total': 0}
+                meses_procesados[key]['inquilinos'] += precio
+                meses_procesados[key]['total'] += precio
+                
+            elif 'cooperación' in concepto or 'cooperacion' in concepto:
+                extras['cooperacion'] += precio
+            elif 'toma nueva' in concepto:
+                extras['toma_nueva'] += precio
+            elif 'inasistencia' in concepto:
+                extras['inasistencia'] += precio
+        
+        # Construir filas de la tabla
+        table_data = [headers]
+        
+        # Filas de meses
+        for mes, data in meses_procesados.items():
+            row = [
+                Paragraph(mes, self.table_cell_style),
+                Paragraph(f"${data['cuota']:.2f}", self.table_cell_style),
+                Paragraph(f"${data['vacas']:.2f}", self.table_cell_style),
+                Paragraph(f"${data['inquilinos']:.2f}", self.table_cell_style),
+                Paragraph("-", self.table_cell_style),
+                Paragraph("-", self.table_cell_style),
+                Paragraph("-", self.table_cell_style),
+                Paragraph(f"${data['total']:.2f}", self.table_cell_style)
+            ]
+            table_data.append(row)
+            
+        # Fila de Extras si existen
+        if any(extras.values()):
+            total_extras = sum(extras.values())
+            row = [
+                Paragraph("OTROS CARGOS", self.table_cell_style),
+                Paragraph("-", self.table_cell_style),
+                Paragraph("-", self.table_cell_style),
+                Paragraph("-", self.table_cell_style),
+                Paragraph(f"${extras['inasistencia']:.2f}", self.table_cell_style),
+                Paragraph(f"${extras['cooperacion']:.2f}", self.table_cell_style),
+                Paragraph(f"${extras['toma_nueva']:.2f}", self.table_cell_style),
+                Paragraph(f"${total_extras:.2f}", self.table_cell_style)
+            ]
+            table_data.append(row)
+            
+        # Fila Total
+        total_row = [
+            Paragraph("<b>TOTAL A PAGAR</b>", self.table_header_style),
+            "", "", "", "", "", "",
+            Paragraph(f"<b>${pago_data['total']:.2f}</b>", self.table_header_style)
+        ]
+        table_data.append(total_row)
+        
+        # Estilo de tabla
+        t_detalles = Table(table_data, colWidths=[3*cm, 2.2*cm, 2*cm, 2.2*cm, 2.5*cm, 2.5*cm, 2.2*cm, 2.4*cm])
+        t_detalles.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('SPAN', (0,-1), (-2,-1)), # Unir celdas del total label
+        ]))
+        elements.append(t_detalles)
+        elements.append(Spacer(1, 20))
+        
+        # --- PIE DE PÁGINA ---
+        # Firmas
+        firmas_data = [
+            [Paragraph("_____________________________", self.center_style), 
+             Paragraph("_____________________________", self.center_style)],
+            [Paragraph("FIRMA DE CONFORMIDAD", self.center_style), 
+             Paragraph("AUTORIZÓ", self.center_style)]
+        ]
+        
+        t_firmas = Table(firmas_data, colWidths=[9*cm, 9*cm])
+        t_firmas.setStyle(TableStyle([
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('ALIGN', (0,3), (0,3), 'LEFT'), # Nota izquierda
-            ('ALIGN', (1,3), (1,3), 'RIGHT'), # Tipo copia derecha
         ]))
+        elements.append(t_firmas)
         
-        return [Spacer(1, 10), t]
-
-    def get_month_name(self, month_num: int) -> str:
-        months = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-                  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
-        return months[month_num] if 1 <= month_num <= 12 else str(month_num)
+        # Nota al pie
+        elements.append(Spacer(1, 10))
+        nota = "NOTA: ESTE RECIBO NO ES VÁLIDO SI PRESENTA TACHADURAS O ENMENDADURAS."
+        elements.append(Paragraph(nota, self.center_style))
+        
+        return elements

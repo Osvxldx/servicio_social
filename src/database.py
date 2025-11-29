@@ -195,10 +195,21 @@ class DatabaseManager:
         cursor = conn.cursor()
         
         try:
+            # Buscar el primer ID disponible (hueco)
+            cursor.execute('SELECT id FROM usuarios ORDER BY id')
+            ids = [row[0] for row in cursor.fetchall()]
+            
+            nuevo_id = 1
+            for id_ocupado in ids:
+                if nuevo_id < id_ocupado:
+                    break
+                nuevo_id += 1
+            
+            # Insertar con el ID específico
             cursor.execute('''
-                INSERT INTO usuarios (nombre, sesion, direccion, telefono, email, vacas, inquilinos)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (nombre, sesion, direccion, telefono, email, vacas, inquilinos))
+                INSERT INTO usuarios (id, nombre, sesion, direccion, telefono, email, vacas, inquilinos)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (nuevo_id, nombre, sesion, direccion, telefono, email, vacas, inquilinos))
             conn.commit()
             return True
         except sqlite3.Error as e:
@@ -218,7 +229,7 @@ class DatabaseManager:
             return dict(row) if row else None
         finally:
             conn.close()
-    
+
     def buscar_usuarios_por_nombre(self, nombre: str) -> List[Dict]:
         """Busca usuarios por nombre (búsqueda parcial)"""
         conn = self.get_connection()
@@ -234,7 +245,7 @@ class DatabaseManager:
             return [dict(row) for row in rows]
         finally:
             conn.close()
-    
+
     def actualizar_usuario(self, usuario_id: int, **kwargs) -> bool:
         """Actualiza los datos de un usuario"""
         if not kwargs:
@@ -289,22 +300,31 @@ class DatabaseManager:
             conn.close()
 
     def eliminar_usuario(self, usuario_id: int) -> bool:
-        """Elimina un usuario por su ID"""
+        """Elimina un usuario por su ID y todo su historial de pagos"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
-            # Primero verificar si tiene pagos
-            cursor.execute('SELECT COUNT(*) FROM pagos WHERE usuario_id = ?', (usuario_id,))
-            if cursor.fetchone()[0] > 0:
-                # Si tiene pagos, no permitir eliminar (o se podría hacer soft delete)
-                return False
+            # 1. Obtener IDs de pagos del usuario
+            cursor.execute('SELECT id FROM pagos WHERE usuario_id = ?', (usuario_id,))
+            pagos = cursor.fetchall()
+            pago_ids = [p[0] for p in pagos]
+            
+            if pago_ids:
+                # 2. Eliminar detalles de pagos
+                placeholders = ','.join(['?'] * len(pago_ids))
+                cursor.execute(f'DELETE FROM detalle_pagos WHERE pago_id IN ({placeholders})', pago_ids)
                 
+                # 3. Eliminar pagos
+                cursor.execute('DELETE FROM pagos WHERE usuario_id = ?', (usuario_id,))
+            
+            # 4. Eliminar usuario
             cursor.execute('DELETE FROM usuarios WHERE id = ?', (usuario_id,))
             conn.commit()
             return cursor.rowcount > 0
         except sqlite3.Error as e:
             print(f"Error al eliminar usuario: {e}")
+            conn.rollback()
             return False
         finally:
             conn.close()

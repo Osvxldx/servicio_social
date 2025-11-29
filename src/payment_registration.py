@@ -42,15 +42,36 @@ class PaymentRegistrationWindow:
         self.monthly_fee = float(self.db.obtener_configuracion('cuota_mensual') or 70.0)
         self.cost_vacas = float(self.db.obtener_configuracion('costo_vacas') or 0.0)
         self.cost_inquilinos = float(self.db.obtener_configuracion('costo_inquilinos') or 0.0)
-        self.cost_cooperacion = float(self.db.obtener_configuracion('costo_cooperacion') or 100.0)
-        self.cost_toma_nueva = float(self.db.obtener_configuracion('costo_toma_nueva') or 500.0)
-        self.fine_delay = float(self.db.obtener_configuracion('multa_retraso') or 100.0) # Esto es el TOTAL si es tarde ($100)
+        self.cost_cooperacion = float(self.db.obtener_configuracion('costo_cooperacion') or 50.0)
+        self.cost_toma_nueva = float(self.db.obtener_configuracion('costo_toma_nueva') or 3000.0)
         self.fine_absence = float(self.db.obtener_configuracion('multa_inasistencia') or 200.0)
 
     def setup_ui(self):
-        # Layout principal: Izquierda (Búsqueda/Usuario), Centro (Meses/Extras), Derecha (Resumen)
+        # Header con botón Volver
+        header_frame = tk.Frame(self.root, bg='#2c3e50', height=60)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+        
+        tk.Label(
+            header_frame, 
+            text="Registro de Pagos", 
+            font=('Arial', 20, 'bold'), 
+            fg='white', 
+            bg='#2c3e50'
+        ).pack(side=tk.LEFT, padx=20)
+        
+        tk.Button(
+            header_frame,
+            text="Volver al Menú",
+            command=self.root.destroy,
+            bg='#e74c3c',
+            fg='white',
+            font=('Arial', 10, 'bold')
+        ).pack(side=tk.RIGHT, padx=20)
+
+        # Contenedor principal
         main_container = tk.Frame(self.root)
-        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
         # Panel Izquierdo
         left_panel = tk.Frame(main_container, width=300)
@@ -145,7 +166,6 @@ class PaymentRegistrationWindow:
         # Checkboxes para extras
         self.var_cooperacion = tk.BooleanVar()
         self.var_toma_nueva = tk.BooleanVar()
-        self.var_inasistencia = tk.BooleanVar()
         
         tk.Checkbutton(frame, text=f"Cooperación (${self.cost_cooperacion:.2f})", 
                       variable=self.var_cooperacion, command=self.update_cart).pack(anchor='w', padx=10, pady=2)
@@ -153,8 +173,20 @@ class PaymentRegistrationWindow:
         tk.Checkbutton(frame, text=f"Toma Nueva (${self.cost_toma_nueva:.2f})", 
                       variable=self.var_toma_nueva, command=self.update_cart).pack(anchor='w', padx=10, pady=2)
         
-        tk.Checkbutton(frame, text=f"Multa por Inasistencia (${self.fine_absence:.2f})", 
-                      variable=self.var_inasistencia, command=self.update_cart).pack(anchor='w', padx=10, pady=2)
+        # Multa por Inasistencia (Spinbox 0-6)
+        inasistencia_frame = tk.Frame(frame)
+        inasistencia_frame.pack(anchor='w', padx=10, pady=2)
+        
+        tk.Label(inasistencia_frame, text=f"Inasistencias (${self.fine_absence:.2f} c/u):").pack(side=tk.LEFT)
+        
+        self.var_inasistencia = tk.IntVar(value=0)
+        self.spin_inasistencia = ttk.Spinbox(inasistencia_frame, from_=0, to=6, 
+                                           textvariable=self.var_inasistencia, width=5,
+                                           command=self.update_cart)
+        self.spin_inasistencia.pack(side=tk.LEFT, padx=5)
+        self.spin_inasistencia.bind('<KeyRelease>', lambda e: self.update_cart())
+        self.spin_inasistencia.bind('<<Increment>>', lambda e: self.update_cart())
+        self.spin_inasistencia.bind('<<Decrement>>', lambda e: self.update_cart())
 
     def create_summary_panel(self, parent):
         frame = tk.LabelFrame(parent, text="Resumen de Pago", font=('Arial', 12, 'bold'))
@@ -292,7 +324,7 @@ class PaymentRegistrationWindow:
         self.selected_months.clear()
         self.var_cooperacion.set(False)
         self.var_toma_nueva.set(False)
-        self.var_inasistencia.set(False)
+        self.var_inasistencia.set(0)
         self.update_cart()
 
     def is_late_payment(self, month, year):
@@ -388,10 +420,11 @@ class PaymentRegistrationWindow:
                 'anio': year
             })
             
-        if self.var_inasistencia.get():
+        inasistencias = self.var_inasistencia.get()
+        if inasistencias > 0:
             self.cart_items.append({
-                'concepto': "Multa por Inasistencia",
-                'precio': self.fine_absence,
+                'concepto': f"Multa Inasistencia ({inasistencias})",
+                'precio': self.fine_absence * inasistencias,
                 'cantidad': 1,
                 'anio': year
             })
