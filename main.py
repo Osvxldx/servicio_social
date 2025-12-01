@@ -5,18 +5,21 @@ Aplicación principal del sistema de gestión de agua potable
 """
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import ttk, messagebox
 import os
+import sys
 from PIL import Image, ImageTk
-from auth import authenticate
-from user_management import UserManagementWindow
-from payment_registration import PaymentRegistrationWindow
-from configuration import ConfigurationWindow
+
+# Importar módulos del paquete src
+from src.auth import authenticate
+from src.user_management import UserManagementWindow
+from src.payment_registration import PaymentRegistrationWindow
+from src.configuration import ConfigurationWindow
 
 class MainApplication:
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("💧 Sistema de Gestión de Agua Potable - Versión Profesional")
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Sistema de Gestión de Agua Potable")
         self.root.geometry("900x650")
         self.root.resizable(True, True)
         
@@ -95,9 +98,10 @@ class MainApplication:
     def set_window_icon(self):
         """Configura el icono de la ventana si existe"""
         try:
-            if os.path.exists("logo.jpg"):
+            logo_path = os.path.join("assets", "logo.jpg")
+            if os.path.exists(logo_path):
                 # Convertir JPG a ICO si es necesario
-                img = Image.open("logo.jpg")
+                img = Image.open(logo_path)
                 img = img.resize((32, 32), Image.Resampling.LANCZOS)
                 # En Windows, podemos usar el archivo directamente
                 # self.root.iconbitmap("logo.ico")  # Si tuviéramos un ICO
@@ -149,19 +153,20 @@ class MainApplication:
         content_frame = tk.Frame(header_frame, bg=self.colors['dark'])
         content_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=15)
         
-        # Panel izquierdo - Logo destacado
+        # Panel izquierdo - Logo
         left_panel = tk.Frame(content_frame, bg=self.colors['dark'])
-        left_panel.pack(side=tk.LEFT, fill=tk.Y)
+        left_panel.pack(side=tk.LEFT)
         
-        # Cargar y mostrar logo con mejor presentación
-        if os.path.exists("logo.jpg"):
+        # Intentar cargar logo
+        logo_path = os.path.join("assets", "logo.jpg")
+        if os.path.exists(logo_path):
             try:
-                logo_img = Image.open("logo.jpg")
-                # Logo más grande y visible
-                logo_img = logo_img.resize((200, 150), Image.Resampling.LANCZOS)
-                self.logo_image = ImageTk.PhotoImage(logo_img)
+                # Cargar y redimensionar imagen
+                pil_image = Image.open(logo_path)
+                pil_image = pil_image.resize((100, 100), Image.Resampling.LANCZOS)
+                self.logo_image = ImageTk.PhotoImage(pil_image)
                 
-                # Frame para el logo con borde elegante
+                # Contenedor con borde blanco
                 logo_container = tk.Frame(left_panel, bg=self.colors['white'], relief='solid', bd=2)
                 logo_container.pack(padx=(0, 25), pady=5)
                 
@@ -184,6 +189,17 @@ class MainApplication:
                     justify=tk.CENTER
                 )
                 default_logo.pack(padx=(0, 25))
+        else:
+            # Logo por defecto
+            default_logo = tk.Label(
+                left_panel,
+                text="💧\nLOGO",
+                font=('Segoe UI', 16, 'bold'),
+                fg=self.colors['primary'],
+                bg=self.colors['dark'],
+                justify=tk.CENTER
+            )
+            default_logo.pack(padx=(0, 25))
         
         # Panel derecho - Información de la empresa
         right_panel = tk.Frame(content_frame, bg=self.colors['dark'])
@@ -226,7 +242,7 @@ class MainApplication:
         # Status de conexión
         status_label = tk.Label(
             right_panel,
-            text="🟢 Sistema Activo • Base de Datos Conectada",
+            text="🟢 Sistema Activo - Base de Datos Conectada",
             font=('Segoe UI', 9, 'bold'),
             fg=self.colors['success'],
             bg=self.colors['dark']
@@ -265,7 +281,7 @@ class MainApplication:
             buttons_frame,
             "👥",
             "GESTIÓN DE\nUSUARIOS",
-            "Administración completa de usuarios\n• Crear y editar usuarios\n• Búsqueda avanzada\n• Control de estados",
+            "Administración completa de usuarios\n- Crear y editar usuarios\n- Búsqueda avanzada\n- Control de estados",
             self.open_user_management,
             self.colors['primary'],
             0, 0
@@ -276,7 +292,7 @@ class MainApplication:
             buttons_frame,
             "💰",
             "REGISTRO DE\nPAGOS",
-            "Control financiero profesional\n• Pagos mensuales\n• Conceptos adicionales\n• Recibos automáticos",
+            "Control financiero profesional\n- Pagos mensuales\n- Conceptos adicionales\n- Recibos automáticos",
             self.open_payment_registration,
             self.colors['success'],
             0, 1
@@ -287,7 +303,7 @@ class MainApplication:
             buttons_frame,
             "⚙️",
             "CONFIGURACIÓN\nDEL SISTEMA",
-            "Personalización avanzada\n• Gestión de tarifas\n• Conceptos de cobro\n• Respaldos automáticos",
+            "Personalización avanzada\n- Gestión de tarifas\n- Conceptos de cobro\n- Respaldos automáticos",
             self.open_configuration,
             self.colors['warning'],
             1, 0
@@ -298,7 +314,7 @@ class MainApplication:
             buttons_frame,
             "📊",
             "IMPORTAR\nDATOS CSV",
-            "Migración de datos externa\n• Importar usuarios masivamente\n• Validación automática\n• Reportes de importación",
+            "Migración de datos externa\n- Importar usuarios masivamente\n- Validación automática\n- Reportes de importación",
             self.open_csv_importer,
             self.colors['danger'],
             1, 1
@@ -431,7 +447,7 @@ class MainApplication:
         
         status_info = tk.Label(
             right_info,
-            text="🟢 Sistema Operativo • Base de Datos Activa",
+            text="🟢 Sistema Operativo - Base de Datos Activa",
             font=('Segoe UI', 10, 'bold'),
             fg=self.colors['success'],
             bg=self.colors['dark']
@@ -507,7 +523,7 @@ class MainApplication:
     def open_csv_importer(self):
         """Abre el importador de CSV"""
         try:
-            from csv_importer import ImporterGUI
+            from src.csv_importer import ImporterGUI
             importer = ImporterGUI()
             importer.run()
         except Exception as e:
@@ -538,37 +554,37 @@ class MainApplication:
 INSTRUCCIONES DE USO - SISTEMA DE AGUA POTABLE
 
 1. GESTIÓN DE USUARIOS
-   • Nuevo Usuario: Crear usuarios con número, nombre, dirección, etc.
-   • Buscar: Por número o nombre en tiempo real
-   • Editar: Doble clic en usuario para modificar datos
-   • Estado: Cambiar entre Activo/Cancelado
-   • Historial: Ver todos los pagos de un usuario
+   - Nuevo Usuario: Crear usuarios con número, nombre, dirección, etc.
+   - Buscar: Por número o nombre en tiempo real
+   - Editar: Doble clic en usuario para modificar datos
+   - Estado: Cambiar entre Activo/Cancelado
+   - Historial: Ver todos los pagos de un usuario
 
 2. REGISTRO DE PAGOS
-   • Buscar usuario por número o nombre
-   • Seleccionar año con las flechas
-   • Clic en meses para marcar como pagados
-   • Agregar conceptos adicionales (cooperaciones, multas)
-   • Procesar pago y generar recibo automáticamente
+   - Buscar usuario por número o nombre
+   - Seleccionar año con las flechas
+   - Clic en meses para marcar como pagados
+   - Agregar conceptos adicionales (cooperaciones, multas)
+   - Procesar pago y generar recibo automáticamente
 
 3. CONFIGURACIÓN
-   • Cuota Mensual: Modificar precio mensual del servicio
-   • Conceptos: Agregar/editar conceptos adicionales de cobro
-   • Información: Datos del comité para recibos
-   • Seguridad: Cambiar PIN de acceso
-   • Respaldos: Crear y restaurar copias de seguridad
+   - Cuota Mensual: Modificar precio mensual del servicio
+   - Conceptos: Agregar/editar conceptos adicionales de cobro
+   - Información: Datos del comité para recibos
+   - Seguridad: Cambiar PIN de acceso
+   - Respaldos: Crear y restaurar copias de seguridad
 
 4. ATAJOS DE TECLADO
-   • Enter: Confirmar en diálogos
-   • Escape: Cancelar operaciones
-   • Ctrl+N: Nuevo usuario (en módulo usuarios)
-   • F5: Actualizar listas
+   - Enter: Confirmar en diálogos
+   - Escape: Cancelar operaciones
+   - Ctrl+N: Nuevo usuario (en módulo usuarios)
+   - F5: Actualizar listas
 
 5. CONSEJOS
-   • Crear respaldos regularmente
-   • Cambiar el PIN por defecto (1234)
-   • Verificar datos antes de procesar pagos
-   • Los recibos se guardan en carpeta 'recibos/'
+   - Crear respaldos regularmente
+   - Cambiar el PIN por defecto (1234)
+   - Verificar datos antes de procesar pagos
+   - Los recibos se guardan en carpeta 'recibos/'
         """
         
         text_widget = tk.Text(
@@ -588,7 +604,7 @@ INSTRUCCIONES DE USO - SISTEMA DE AGUA POTABLE
         # Botón cerrar
         close_btn = tk.Button(
             instructions_window,
-            text="Cerrar",
+            text="Volver",
             command=instructions_window.destroy,
             bg='#95a5a6',
             fg='white',
@@ -601,7 +617,7 @@ INSTRUCCIONES DE USO - SISTEMA DE AGUA POTABLE
         messagebox.showinfo(
             "Acerca del Sistema",
             "Sistema de Gestión de Agua Potable\n" +
-            "Versión 1.0\n\n" +
+            "Versión 2.0\n\n" +
             "Desarrollado en Python con Tkinter\n" +
             "Base de datos SQLite\n" +
             "Generación de PDF con ReportLab\n\n" +
@@ -628,13 +644,21 @@ INSTRUCCIONES DE USO - SISTEMA DE AGUA POTABLE
 def main():
     """Función principal de la aplicación"""
     try:
-        # Autenticar usuario
-        if not authenticate():
+        # Crear root window principal pero oculta
+        root = tk.Tk()
+        root.withdraw()
+        
+        # Autenticar usuario usando root como padre
+        if not authenticate(root):
             print("Autenticación fallida. Cerrando aplicación.")
+            root.destroy()
             return
         
-        # Crear y ejecutar la aplicación principal
-        app = MainApplication()
+        # Mostrar ventana principal
+        root.deiconify()
+        
+        # Crear y ejecutar la aplicación principal usando el root existente
+        app = MainApplication(root)
         app.run()
         
     except Exception as e:
