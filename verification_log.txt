@@ -1,17 +1,13 @@
 Iniciando verificación...
 DB inicializada e inyectada.
 Creando usuario de prueba...
-Usuario creado con ID: 8
-Historial inicial: [{'id': 8, 'usuario_id': 8, 'estado': 'Activo', 'fecha_movimiento': '2025-11-28 19:35:44', 'observaciones': 'Registro inicial'}]
+Usuario creado con ID: 16
+Historial inicial: [{'id': 16, 'usuario_id': 16, 'estado': 'Activo', 'fecha_movimiento': '2025-11-30 18:19:40', 'observaciones': 'Registro inicial'}]
 Probando cálculo de adeudo...
-Meses adeudo (recién creado): []
+Meses adeudo (recién creado): {'detalles': [], 'total': 0.0, 'suspension': False, 'meses_cantidad': 0}
 Generando estado de cuenta...
-Estado de cuenta generado: test_recibos\estado_cuenta_8.pdf
+Estado de cuenta generado: test_recibos\estado_cuenta_16.pdf
 Generando multa desperdicio...
-Pago registrado con ID: 7
-DEBUG: Verificando pago 7 para usuario 8
-DEBUG: Pago raw: <sqlite3.Row object at 0x000001BEF523C1C0>
-DEBUG: Usuario raw: <sqlite3.Row object at 0x000001BEF4DAE770>
-DEBUG: obtener_detalle_pago resultado: {'id': 7, 'usuario_id': 8, 'fecha_pago': '2025-11-29 01:35:44', 'total': 500.0, 'observaciones': 'Prueba Multa', 'nombre': 'Usuario Test 1764380144.241179', 'direccion': 'Direccion Test', 'sesion': 1, 'vacas': 0, 'inquilinos': 0, 'detalles': [{'id': 7, 'pago_id': 7, 'concepto': 'Multa Desperdicio', 'mes': None, 'anio': None, 'precio': 500.0, 'cantidad': 1}]}
-Recibo multa generado: test_recibos\multa_desperdicio_7.pdf
+Pago registrado con ID: 13
+Recibo multa generado: test_recibos\multa_desperdicio_13.pdf
 Verificación completada.

@@ -536,65 +536,214 @@ class DatabaseManager:
         finally:
             conn.close()
     
-    def obtener_meses_adeudo(self, usuario_id: int, anio: int) -> List[int]:
+    def obtener_meses_adeudo(self, usuario_id: int, anio: int = None) -> Dict:
         """
         Calcula los meses que el usuario debe pagar en un año específico,
-        basado en su historial de actividad y pagos realizados.
+        aplicando reglas de negocio:
+        - Costo base: $70
+        - Recargo: $100 si pasa del 3er domingo del mes
+        - Penalización: Costo doble si debe 3 meses o más
+        - Suspensión: Si debe más de 6 meses
+        
+        Returns:
+            Dict: {
+                'detalles': List[Dict] (mes, monto, concepto),
+                'total': float,
+                'suspension': bool,
+                'meses_cantidad': int
+            }
         """
+        import calendar
+        
+        if anio is None:
+            anio = datetime.now().year
+        
         # 1. Obtener meses pagados
         pagos = self.obtener_pagos_usuario_anio(usuario_id, anio)
         pagos_set = set(pagos)
         
-        # 2. Obtener historial
+        # 2. Obtener historial para saber meses activos
+        historial = self.obtener_historial_estatus(usuario_id)
+        meses_a_pagar = []
+        mes_fin_calculo = 12
+        if anio == datetime.now().year:
+            mes_fin_calculo = datetime.now().month
+            
+        for m in range(1, mes_fin_calculo + 1):
+            # Si es mes actual, verificar si ya pasó fecha de corte? 
+            # La regla dice "pagar los 3 primeros domingos". Si estamos en el mes, se debe pagar.
+            
+            fecha_mes = datetime(anio, m, 15) # Día arbitrario para verificar estatus
+            if fecha_mes > datetime.now():
+                continue
+                
+            activo = False
+            if not historial:
+                # Lógica legacy sin historial
+                u = self.buscar_usuario_por_id(usuario_id)
+                if u:
+                    fecha_reg = datetime.strptime(u['fecha_alta'] or u['fecha_registro'], '%Y-%m-%d %H:%M:%S')
+                    if fecha_reg.year < anio or (fecha_reg.year == anio and fecha_reg.month <= m):
+                        if u['estado'] == 'Activo':
+                            activo = True
+                        elif u['fecha_baja']:
+                            fecha_baja = datetime.strptime(u['fecha_baja'], '%Y-%m-%d %H:%M:%S')
+                            if fecha_baja.year > anio or (fecha_baja.year == anio and fecha_baja.month >= m):
+                                activo = True
+            else:
+                activo = self.es_usuario_activo_en_fecha(usuario_id, fecha_mes)
+            
+            if activo and m not in pagos_set:
+                meses_a_pagar.append(m)
+
+        # 3. Calcular costos
+        detalles = []
+        total = 0.0
+        cantidad_meses = len(meses_a_pagar)
+        
+        # Regla: Un atraso de 3 meses o más, el costo es doble
+        aplicar_doble = cantidad_meses >= 3
+        
+        # Regla: Adeudo mayor de 6 meses es suspensión
+        suspension = cantidad_meses > 6
+        
+        cuota_base = float(self.obtener_configuracion('cuota_mensual') or 70.0)
+        # El recargo sube a $100 (diferencia de $30 si base es 70)
+        monto_con_recargo = 100.0 
+        
+        u = self.buscar_usuario_por_id(usuario_id)
+        tomas = u.get('tomas', 1)
+        
+        meses_nombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+
+        now = datetime.now()
+        
+        for mes_num in meses_a_pagar:
+            nombre_mes = meses_nombres[mes_num - 1]
+            
+            # Calcular fecha límite (3er domingo del mes)
+            c = calendar.monthcalendar(anio, mes_num)
+            first_week = c[0]
+            second_week = c[1]
+            third_week = c[2]
+            fourth_week = c[3]
+
+            # Si el primer día es domingo, first_week[6] es 1.
+            # Buscamos el 3er domingo.
+            domingos = [week[6] for week in c if week[6] != 0]
+            dia_tercer_domingo = domingos[2]
+            
+            fecha_limite = datetime(anio, mes_num, dia_tercer_domingo, 23, 59, 59)
+            
+            # Determinar costo base del mes
+            costo = cuota_base
+            es_tardio = False
+            
+            # Si ya pasó el mes, o si estamos en el mes pero pasó el 3er domingo
+            if anio < now.year or (anio == now.year and mes_num < now.month):
+                es_tardio = True
+            elif anio == now.year and mes_num == now.month:
+                if now > fecha_limite:
+                    es_tardio = True
+            
+            if es_tardio:
+                costo = monto_con_recargo
+            
+            # Aplicar tomas
+            costo_total_mes = costo * tomas
+            
+            # Aplicar penalización doble
+            if aplicar_doble:
+                costo_total_mes *= 2
+                nombre_mes += " (Penalización Doble)"
+            elif es_tardio:
+                nombre_mes += " (Tardío)"
+                
+            detalles.append({
+                'mes': nombre_mes,
+                'monto': costo_total_mes,
+                'concepto': f"Mensualidad {nombre_mes}"
+            })
+            total += costo_total_mes
+            
+        return {
+            'detalles': detalles,
+            'total': total,
+            'suspension': suspension,
+            'meses_cantidad': cantidad_meses
+        }
+
+    def obtener_adeudo_inasistencias(self, usuario_id: int, anio: int = None) -> List[Dict]:
+        """
+        Calcula adeudo por inasistencias (6 al año: Feb, Abr, Jun, Ago, Oct, Dic).
+        Se condonan si hay pago anual antes del 31 de Marzo.
+        """
+        import calendar
+        
+        if anio is None:
+            anio = datetime.now().year
+            
+        # 1. Verificar si hay pago anual anticipado
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        # Buscar un pago que cubra todo el año o tenga concepto "Anual"
+        # Simplificación: Buscamos si pagó Diciembre del año en cuestión ANTES del 31 de Marzo
+        # O si existe un concepto "Pago Anual"
+        cursor.execute('''
+            SELECT p.fecha_pago 
+            FROM detalle_pagos dp
+            JOIN pagos p ON dp.pago_id = p.id
+            WHERE p.usuario_id = ? AND dp.anio = ? AND (dp.concepto LIKE '%Anual%' OR dp.mes = 12)
+            ORDER BY p.fecha_pago ASC
+            LIMIT 1
+        ''', (usuario_id, anio))
+        
+        pago_anual = cursor.fetchone()
+        if pago_anual:
+            fecha_pago = datetime.strptime(pago_anual[0], '%Y-%m-%d %H:%M:%S')
+            fecha_limite = datetime(anio, 3, 31, 23, 59, 59)
+            if fecha_pago <= fecha_limite:
+                return [] # Condonado
+        
+        conn.close()
+        
+        # 2. Calcular inasistencias vencidas
+        meses_inasistencia = [2, 4, 6, 8, 10, 12] # Feb, Abr, Jun...
+        meses_nombres = {2: 'Febrero', 4: 'Abril', 6: 'Junio', 8: 'Agosto', 10: 'Octubre', 12: 'Diciembre'}
+        
+        adeudos = []
+        costo_inasistencia = float(self.obtener_configuracion('multa_inasistencia') or 200.0)
+        
+        now = datetime.now()
+        
+        # Verificar historial para ver si estaba activo en ese mes
         historial = self.obtener_historial_estatus(usuario_id)
         
-        meses_adeudo = []
-        
-        # Si no hay historial, usamos la lógica simple (activo todo el año o desde fecha registro)
-        if not historial:
-            u = self.buscar_usuario_por_id(usuario_id)
-            if not u: return []
+        for m in meses_inasistencia:
+            # La inasistencia se cobra al finalizar el mes (o cuando ocurre la faena, asumimos fin de mes)
+            fecha_fin_mes = datetime(anio, m, calendar.monthrange(anio, m)[1], 23, 59, 59)
             
-            fecha_reg = datetime.strptime(u['fecha_alta'] or u['fecha_registro'], '%Y-%m-%d %H:%M:%S')
-            mes_inicio = 1
-            if fecha_reg.year == anio:
-                mes_inicio = fecha_reg.month
-            elif fecha_reg.year > anio:
-                return [] # Registrado después
+            if now > fecha_fin_mes:
+                # Verificar si estaba activo
+                activo = False
+                if not historial:
+                     u = self.buscar_usuario_por_id(usuario_id)
+                     if u and u['estado'] == 'Activo': activo = True # Simplificado
+                else:
+                    activo = self.es_usuario_activo_en_fecha(usuario_id, fecha_fin_mes)
                 
-            mes_fin = 12
-            if anio == datetime.now().year:
-                mes_fin = datetime.now().month
-            
-            if u['estado'] != 'Activo' and u['fecha_baja']:
-                fecha_baja = datetime.strptime(u['fecha_baja'], '%Y-%m-%d %H:%M:%S')
-                if fecha_baja.year == anio:
-                    mes_fin = min(mes_fin, fecha_baja.month)
-                elif fecha_baja.year < anio:
-                    return [] # Baja antes de este año
-
-            for m in range(mes_inicio, mes_fin + 1):
-                if m not in pagos_set:
-                    meses_adeudo.append(m)
-            return meses_adeudo
-
-        # Lógica con historial
-        # Construir mapa de estado por mes
-        meses_activos = []
-        for m in range(1, 13):
-            # Verificar el primer día del mes (o último, depende de regla de negocio. Usaremos día 15 para promedio)
-            fecha_mes = datetime(anio, m, 15)
-            if fecha_mes > datetime.now():
-                continue # Meses futuros no se deben (a menos que sea prepago, pero aquí calculamos deuda)
-                
-            if self.es_usuario_activo_en_fecha(usuario_id, fecha_mes):
-                meses_activos.append(m)
-        
-        for m in meses_activos:
-            if m not in pagos_set:
-                meses_adeudo.append(m)
-                
-        return meses_adeudo
+                if activo:
+                    # Verificar si ya pagó esta inasistencia (opcional, si se registra como concepto separado)
+                    # Por ahora asumimos que se debe si no hay pago anual
+                    adeudos.append({
+                        'mes': meses_nombres[m],
+                        'monto': costo_inasistencia,
+                        'concepto': f"Inasistencia {meses_nombres[m]}"
+                    })
+                    
+        return adeudos
 
     def registrar_pago(self, usuario_id: int, detalles: List[Dict], observaciones: str = "") -> int:
         """

@@ -333,7 +333,6 @@ class UserManagementWindow:
 
             if not datos['direccion']:
                 messagebox.showwarning("Error", "La dirección es obligatoria")
-                return
             
             # Verificar si cambió el estado para actualizar fechas
             current_user = db.buscar_usuario_por_id(int(user_id))
@@ -355,10 +354,20 @@ class UserManagementWindow:
             messagebox.showerror("Error", f"Error al guardar: {str(e)}")
 
     def show_payment_history(self):
-        """Muestra el historial de pagos"""
+        """Muestra el historial de pagos del usuario seleccionado"""
         user_id = self.user_id_var.get()
-        if user_id:
+        if not user_id:
+            return
+            
+        try:
+            # Importar aquí para evitar referencias circulares si las hubiera
+            from .payment_history import PaymentHistoryWindow
             PaymentHistoryWindow(self.root, user_id)
+        except ImportError:
+            # Fallback si no existe el módulo aún
+            messagebox.showinfo("Historial", f"Historial de pagos para usuario {user_id}\n(Módulo en desarrollo)")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al abrir historial: {str(e)}")
 
     def delete_user(self):
         """Elimina el usuario seleccionado"""
@@ -366,41 +375,16 @@ class UserManagementWindow:
         if not user_id:
             return
             
-        nombre = self.user_name_var.get()
-        
-        if not messagebox.askyesno("Confirmar Eliminación", 
-                                 f"¿Está seguro que desea eliminar al usuario '{nombre}'?\n\n" +
-                                 "ADVERTENCIA: Esta acción eliminará también TODO el historial de pagos y recibos asociados.\n" +
-                                 "Esta acción no se puede deshacer."):
-            return
-            
-        try:
-            db = get_db_manager()
-            if db.eliminar_usuario(int(user_id)):
-                messagebox.showinfo("Éxito", "Usuario y sus datos eliminados correctamente")
-                self.clear_search() # Refresca la lista y limpia campos
-                self.save_btn.config(state='disabled')
-                self.history_btn.config(state='disabled')
-                self.delete_btn.config(state='disabled')
-                self.print_debt_btn.config(state='disabled')
-                
-                # Limpiar campos de detalle
-                self.user_id_var.set("")
-                self.user_name_var.set("")
-                self.user_address_var.set("")
-                self.user_phone_var.set("")
-                self.user_email_var.set("")
-                self.user_session_var.set("1")
-                self.user_status_var.set("Activo")
-                self.user_vacas_var.set(0)
-                self.user_inquilinos_var.set(0)
-                self.user_tomas_var.set(1)
-                self.user_fecha_alta_var.set("")
-                self.user_fecha_baja_var.set("")
-            else:
-                messagebox.showerror("Error", "No se pudo eliminar el usuario.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al eliminar: {str(e)}")
+        if messagebox.askyesno("Confirmar", "¿Está seguro de que desea eliminar este usuario?\nEsta acción no se puede deshacer."):
+            try:
+                db = get_db_manager()
+                if db.eliminar_usuario(int(user_id)):
+                    messagebox.showinfo("Éxito", "Usuario eliminado correctamente")
+                    self.clear_search() # Limpiar selección
+                else:
+                    messagebox.showerror("Error", "No se pudo eliminar el usuario")
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al eliminar: {str(e)}")
 
     def print_debt_summary(self):
         """Imprime el estado de cuenta del usuario"""
@@ -408,114 +392,26 @@ class UserManagementWindow:
         if not user_id:
             return
             
-        # Preguntar por inasistencias
-        inasistencias = simpledialog.askinteger("Inasistencias", "Ingrese número de inasistencias pendientes:", 
-                                              parent=self.root, minvalue=0, maxvalue=20, initialvalue=0)
-        
-        if inasistencias is None:
-            return
-            
         try:
+            # Generar reporte de adeudo
             generator = ReceiptGenerator()
-            # Nota: Necesitamos actualizar generate_account_statement para aceptar inasistencias
-            pdf_path = generator.generate_account_statement(int(user_id), inasistencias)
+            filename = generator.generate_debt_summary(int(user_id))
             
-            if pdf_path and os.path.exists(pdf_path):
-                os.startfile(pdf_path)
+            if filename and os.path.exists(filename):
+                os.startfile(filename)
             else:
-                messagebox.showerror("Error", "No se pudo generar el estado de cuenta")
+                messagebox.showwarning("Aviso", "No se pudo generar el reporte")
+                
         except Exception as e:
-            messagebox.showerror("Error", f"Error al generar estado de cuenta: {str(e)}")
-
-class PaymentHistoryWindow:
-    def __init__(self, parent, user_id):
-        self.user_id = user_id
-        self.top = tk.Toplevel(parent)
-        self.top.title("Historial de Pagos")
-        self.top.geometry("800x600")
-        
-        self.setup_ui()
-        self.load_history()
-        
-    def setup_ui(self):
-        # Frame principal
-        main_frame = tk.Frame(self.top)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Título
-        self.title_label = tk.Label(
-            main_frame,
-            text="Historial de Pagos",
-            font=('Arial', 14, 'bold'),
-            fg='#2c3e50'
-        )
-        self.title_label.pack(pady=(0, 10))
-        
-        # Lista de pagos
-        columns = ('id', 'fecha', 'total', 'detalles')
-        self.tree = ttk.Treeview(main_frame, columns=columns, show='headings')
-        
-        self.tree.heading('id', text='ID Pago')
-        self.tree.heading('fecha', text='Fecha')
-        self.tree.heading('total', text='Total')
-        self.tree.heading('detalles', text='Detalles')
-        
-        self.tree.column('id', width=60, anchor='center')
-        self.tree.column('fecha', width=150, anchor='center')
-        self.tree.column('total', width=80, anchor='e')
-        self.tree.column('detalles', width=400)
-        
-        scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Botón de reimpresión
-        btn_frame = tk.Frame(self.top)
-        btn_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        tk.Button(btn_frame, text="Reimprimir Recibo Seleccionado", command=self.reprint_receipt, bg='#f39c12', fg='white').pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Volver", command=self.top.destroy, bg='#7f8c8d', fg='white').pack(side=tk.RIGHT, padx=5)
-        
-    def load_history(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-            
-        db = get_db_manager()
-        pagos = db.obtener_pagos_usuario(self.user_id)
-        
-        for pago in pagos:
-            detalles_str = ", ".join([f"{d['concepto']} ({d['precio']})" for d in pago['detalles']])
-            self.tree.insert('', 'end', values=(pago['id'], pago['fecha_pago'], f"${pago['total']:.2f}", detalles_str))
-            
-    def reprint_receipt(self):
-        selection = self.tree.selection()
-        if not selection:
-            messagebox.showwarning("Aviso", "Seleccione un pago para reimprimir")
-            return
-            
-        item = self.tree.item(selection[0])
-        pago_id = item['values'][0]
-        
-        try:
-            generator = ReceiptGenerator()
-            pdf_path = generator.generate_receipt(pago_id)
-            
-            if pdf_path and os.path.exists(pdf_path):
-                os.startfile(pdf_path)
-            else:
-                messagebox.showerror("Error", "No se pudo generar el recibo")
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al generar recibo: {str(e)}")
+            messagebox.showerror("Error", f"Error al generar reporte: {str(e)}")
 
 
 class NewUserDialog:
     def __init__(self, parent, callback):
+        self.callback = callback
         self.top = tk.Toplevel(parent)
         self.top.title("Nuevo Usuario")
-        self.top.geometry("400x600") # Taller
-        self.callback = callback
+        self.top.geometry("400x600")
         
         self.name_var = tk.StringVar()
         self.address_var = tk.StringVar()

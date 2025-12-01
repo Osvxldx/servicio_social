@@ -1,0 +1,24 @@
+[2025-11-30 18:08:55.890487] Error en generate_account_statement: DatabaseManager.obtener_meses_adeudo() missing 1 required positional argument: 'anio'
+Traceback (most recent call last):
+  File "C:\Codigos\servicio\src\receipt_generator.py", line 459, in generate_account_statement
+    deuda_meses = db.obtener_meses_adeudo(user_id)
+TypeError: DatabaseManager.obtener_meses_adeudo() missing 1 required positional argument: 'anio'
+[2025-11-30 18:11:35.261499] Error en generate_account_statement: DatabaseManager.obtener_adeudo_inasistencias() missing 1 required positional argument: 'anio'
+Traceback (most recent call last):
+  File "C:\Codigos\servicio\src\receipt_generator.py", line 460, in generate_account_statement
+    deuda_inasistencias = db.obtener_adeudo_inasistencias(user_id)
+TypeError: DatabaseManager.obtener_adeudo_inasistencias() missing 1 required positional argument: 'anio'
+[2025-11-30 18:12:44.580248] Error en generate_account_statement: name 'calendar' is not defined
+Traceback (most recent call last):
+  File "C:\Codigos\servicio\src\receipt_generator.py", line 460, in generate_account_statement
+    deuda_inasistencias = db.obtener_adeudo_inasistencias(user_id)
+  File "C:\Codigos\servicio\src\database.py", line 724, in obtener_adeudo_inasistencias
+    fecha_fin_mes = datetime(anio, m, calendar.monthrange(anio, m)[1], 23, 59, 59)
+                                      ^^^^^^^^
+NameError: name 'calendar' is not defined. Did you forget to import 'calendar'?
+[2025-11-30 18:13:59.508058] Error en generate_account_statement: list indices must be integers or slices, not str
+Traceback (most recent call last):
+  File "C:\Codigos\servicio\src\receipt_generator.py", line 533, in generate_account_statement
+    for detalle in deuda_inasistencias['detalles']:
+                   ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+TypeError: list indices must be integers or slices, not str

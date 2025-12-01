@@ -53,7 +53,7 @@ def verify():
     gen.receipts_dir = "test_recibos"
     gen.ensure_directories()
     
-    pdf_path = gen.generate_account_statement(user_id, inasistencias=2)
+    pdf_path = gen.generate_account_statement(user_id)
     if pdf_path and os.path.exists(pdf_path):
         log(f"Estado de cuenta generado: {pdf_path}")
     else:
@@ -64,21 +64,6 @@ def verify():
     pago_id = db.registrar_pago(user_id, [{'concepto': 'Multa Desperdicio', 'precio': 500.0, 'cantidad': 1}], "Prueba Multa")
     log(f"Pago registrado con ID: {pago_id}")
     
-    # DEBUG
-    log(f"DEBUG: Verificando pago {pago_id} para usuario {user_id}")
-    conn = db.get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM pagos WHERE id=?", (pago_id,))
-    log(f"DEBUG: Pago raw: {cursor.fetchone()}")
-    
-    cursor.execute("SELECT * FROM usuarios WHERE id=?", (user_id,))
-    log(f"DEBUG: Usuario raw: {cursor.fetchone()}")
-    
-    pago_data = db.obtener_detalle_pago(pago_id)
-    log(f"DEBUG: obtener_detalle_pago resultado: {pago_data}")
-    conn.close()
-
     if pago_id == 0:
         log("ERROR: Falló registrar_pago")
     else:

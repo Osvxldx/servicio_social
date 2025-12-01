@@ -176,101 +176,6 @@ class ReceiptGenerator:
             return filepath
             
         except Exception as e:
-            self.log_error("generate_waste_receipt", e)
-            print(f"Error generando multa: {e}")
-            return None
-
-    def generate_account_statement(self, user_id: int, inasistencias: int = 0) -> Optional[str]:
-        """Genera un estado de cuenta / resumen de adeudo"""
-        try:
-            db = get_db_manager()
-            user = db.buscar_usuario_por_id(user_id)
-            if not user: return None
-            
-            year = datetime.now().year
-            
-            # 1. Obtener meses de adeudo usando la lógica robusta
-            meses_adeudo_nums = db.obtener_meses_adeudo(user_id, year)
-            
-            meses_nombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
-                     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
-            
-            adeudos = []
-            total_deuda = 0.0
-            
-            cuota_base = float(db.obtener_configuracion('cuota_mensual') or 70.0)
-            tomas = user.get('tomas', 1)
-            costo_mensual = cuota_base * tomas
-            
-            # Procesar meses de adeudo
-            for mes_num in meses_adeudo_nums:
-                nombre_mes = meses_nombres[mes_num - 1]
-                
-                monto = costo_mensual
-                # Agregar recargo si aplica (si el mes ya pasó)
-                if datetime.now().month > mes_num:
-                    recargo = (100.0 * tomas) - costo_mensual
-                    if recargo > 0:
-                        monto += recargo
-                
-                adeudos.append([nombre_mes, f"${monto:.2f}"])
-                total_deuda += monto
-            
-            # Procesar Inasistencias
-            if inasistencias > 0:
-                costo_inasistencia = float(db.obtener_configuracion('multa_inasistencia') or 200.0)
-                total_inasistencias = inasistencias * costo_inasistencia
-                adeudos.append([f"Inasistencias ({inasistencias})", f"${total_inasistencias:.2f}"])
-                total_deuda += total_inasistencias
-
-            filename = f"estado_cuenta_{user_id}.pdf"
-            filepath = os.path.join(self.receipts_dir, filename)
-            
-            doc = SimpleDocTemplate(filepath, pagesize=letter)
-            elements = []
-            
-            # Logo
-            logo_path = os.path.join("assets", "logo.jpg")
-            if os.path.exists(logo_path):
-                elements.append(Image(logo_path, width=2*cm, height=2*cm))
-                elements.append(Spacer(1, 10))
-
-            elements.append(Paragraph(f"ESTADO DE CUENTA - {year}", self.title_style))
-            elements.append(Spacer(1, 20))
-            
-            # Info Usuario
-            elements.append(Paragraph(f"<b>Usuario:</b> {user['nombre']} (ID: {user['id']})", self.normal_style))
-            elements.append(Paragraph(f"<b>Dirección:</b> {user['direccion']}", self.normal_style))
-            elements.append(Paragraph(f"<b>Tomas:</b> {tomas} | <b>Sesión:</b> {user['sesion']}", self.normal_style))
-            elements.append(Spacer(1, 20))
-            
-            # Tabla de Adeudos
-            if adeudos:
-                data = [["CONCEPTO", "MONTO ESTIMADO"]] + adeudos
-                data.append(["TOTAL A PAGAR", f"${total_deuda:.2f}"])
-                
-                t = Table(data, colWidths=[10*cm, 4*cm])
-                t.setStyle(TableStyle([
-                    ('GRID', (0,0), (-1,-1), 1, colors.black),
-                    ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                    ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
-                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                    ('ALIGN', (0,1), (0,-2), 'LEFT'), # Alinear conceptos a la izquierda
-                    ('TEXTCOLOR', (0,-1), (-1,-1), colors.red),
-                ]))
-                elements.append(t)
-            else:
-                elements.append(Paragraph("¡FELICIDADES! NO PRESENTA ADEUDOS ESTE AÑO.", self.title_style))
-                
-            # Nota
-            elements.append(Spacer(1, 30))
-            elements.append(Paragraph("Nota: Este documento es informativo y no representa un comprobante de pago oficial.", self.center_style))
-            
-            doc.build(elements)
-            return filepath
-            
-        except Exception as e:
             self.log_error("generate_account_statement", e)
             print(f"Error estado cuenta: {e}")
             return None
@@ -539,3 +444,121 @@ class ReceiptGenerator:
         elements.append(Paragraph(nota, self.center_style))
         
         return elements
+
+    def generate_account_statement(self, user_id: int) -> Optional[str]:
+        """Genera un estado de cuenta (resumen de adeudo)"""
+        try:
+            db = get_db_manager()
+            user = db.buscar_usuario_por_id(user_id)
+            if not user:
+                return None
+            
+            # Obtener deuda
+            deuda_meses = db.obtener_meses_adeudo(user_id)
+            deuda_inasistencias = db.obtener_adeudo_inasistencias(user_id)
+            
+            filename = f"estado_cuenta_{user_id}.pdf"
+            filepath = os.path.join(self.receipts_dir, filename)
+            
+            doc = SimpleDocTemplate(
+                filepath,
+                pagesize=letter,
+                rightMargin=1*cm,
+                leftMargin=1*cm,
+                topMargin=1*cm,
+                bottomMargin=1*cm
+            )
+            
+            elements = []
+            
+            # --- ENCABEZADO ---
+            logo_path = os.path.join("assets", "logo.jpg")
+            if os.path.exists(logo_path):
+                elements.append(Image(logo_path, width=3*cm, height=3*cm))
+                elements.append(Spacer(1, 10))
+            
+            elements.append(Paragraph("COMITÉ DE AGUA POTABLE Y ALCANTARILLADO", self.title_style))
+            elements.append(Paragraph("DEL BARRIO DE SAN ANTONIO TECAMACHALCO, PUE.", self.subtitle_style))
+            elements.append(Spacer(1, 20))
+            
+            elements.append(Paragraph("ESTADO DE CUENTA", self.title_style))
+            elements.append(Spacer(1, 20))
+            
+            # --- DATOS DEL USUARIO ---
+            user_data = [
+                [Paragraph(f"<b>USUARIO No.:</b> {user['id']}", self.normal_style),
+                 Paragraph(f"<b>NOMBRE:</b> {user['nombre']}", self.normal_style)],
+                [Paragraph(f"<b>DIRECCIÓN:</b> {user['direccion']}", self.normal_style),
+                 Paragraph(f"<b>FECHA:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", self.normal_style)]
+            ]
+            
+            t_user = Table(user_data, colWidths=[9*cm, 9*cm])
+            t_user.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ]))
+            elements.append(t_user)
+            elements.append(Spacer(1, 20))
+            
+            # --- ADVERTENCIA DE SUSPENSIÓN ---
+            if deuda_meses.get('suspension', False):
+                elements.append(Paragraph("¡AVISO DE SUSPENSIÓN DE SERVICIO!", 
+                    ParagraphStyle('Warning', parent=self.title_style, textColor=colors.red, fontSize=16)))
+                elements.append(Paragraph("Su adeudo supera los 6 meses. Por favor regularice su situación.", self.center_style))
+                elements.append(Spacer(1, 20))
+            
+            # --- TABLA DE ADEUDOS ---
+            headers = [
+                Paragraph("CONCEPTO", self.table_header_style),
+                Paragraph("DETALLE", self.table_header_style),
+                Paragraph("MONTO", self.table_header_style)
+            ]
+            
+            table_data = [headers]
+            total_general = 0.0
+            
+            # Meses adeudados
+            for detalle in deuda_meses['detalles']:
+                row = [
+                    Paragraph(detalle['concepto'], self.table_cell_style),
+                    Paragraph(detalle.get('observacion', ''), self.table_cell_style),
+                    Paragraph(f"${detalle['monto']:.2f}", self.table_cell_style)
+                ]
+                table_data.append(row)
+                total_general += detalle['monto']
+                
+            # Inasistencias
+            for detalle in deuda_inasistencias:
+                row = [
+                    Paragraph(detalle['concepto'], self.table_cell_style),
+                    Paragraph(detalle.get('observacion', ''), self.table_cell_style),
+                    Paragraph(f"${detalle['monto']:.2f}", self.table_cell_style)
+                ]
+                table_data.append(row)
+                total_general += detalle['monto']
+            
+            # Fila Total
+            total_row = [
+                Paragraph("<b>TOTAL A PAGAR</b>", self.table_header_style),
+                "",
+                Paragraph(f"<b>${total_general:.2f}</b>", self.table_header_style)
+            ]
+            table_data.append(total_row)
+            
+            t_adeudos = Table(table_data, colWidths=[8*cm, 8*cm, 3*cm])
+            t_adeudos.setStyle(TableStyle([
+                ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+                ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('SPAN', (0,-1), (-2,-1)),
+            ]))
+            elements.append(t_adeudos)
+            
+            doc.build(elements)
+            return filepath
+            
+        except Exception as e:
+            self.log_error("generate_account_statement", e)
+            print(f"Error generando estado de cuenta: {e}")
+            return None
