@@ -134,41 +134,65 @@ class ReceiptGenerator:
             elements.append(Paragraph("DEL BARRIO DE SAN ANTONIO TECAMACHALCO, PUE.", self.subtitle_style))
             elements.append(Spacer(1, 20))
             
-            elements.append(Paragraph("MULTA POR DESPERDICIO DE AGUA", self.title_style))
+            # Título con fondo
+            title_data = [[Paragraph("MULTA POR DESPERDICIO DE AGUA", ParagraphStyle('TitleWhite', parent=self.title_style, textColor=colors.white))]]
+            t_title = Table(title_data, colWidths=[16*cm])
+            t_title.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.darkblue),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('PADDING', (0,0), (-1,-1), 6),
+            ]))
+            elements.append(t_title)
             elements.append(Spacer(1, 20))
             
             # Datos
             fecha = datetime.strptime(pago_data['fecha_pago'], '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y %H:%M')
             
             data = [
-                ["FOLIO:", f"{pago_data['id']:06d}"],
-                ["FECHA:", fecha],
-                ["USUARIO:", f"{pago_data['nombre']} (ID: {pago_data['usuario_id']})"],
-                ["DIRECCIÓN:", pago_data['direccion']],
-                ["OBSERVACIONES:", pago_data.get('observaciones', 'Desperdicio de agua')],
-                ["TOTAL A PAGAR:", f"${pago_data['total']:.2f}"]
+                [Paragraph("<b>FOLIO:</b>", self.normal_style), Paragraph(f"<font color='red' size='12'><b>{pago_data['id']:06d}</b></font>", self.normal_style)],
+                [Paragraph("<b>FECHA:</b>", self.normal_style), Paragraph(fecha, self.normal_style)],
+                [Paragraph("<b>USUARIO:</b>", self.normal_style), Paragraph(f"{pago_data['nombre']} (ID: {pago_data['usuario_id']})", self.normal_style)],
+                [Paragraph("<b>DIRECCIÓN:</b>", self.normal_style), Paragraph(pago_data['direccion'], self.normal_style)],
+                [Paragraph("<b>OBSERVACIONES:</b>", self.normal_style), Paragraph(pago_data.get('observaciones', 'Desperdicio de agua'), self.normal_style)],
             ]
             
-            t = Table(data, colWidths=[5*cm, 10*cm])
+            t = Table(data, colWidths=[4*cm, 12*cm])
             t.setStyle(TableStyle([
-                ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-                ('SIZE', (0,0), (-1,-1), 12),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                ('BACKGROUND', (0,0), (0,-1), colors.Color(0.95, 0.95, 0.95)), # Light gray for labels
+                ('TEXTCOLOR', (0,0), (0,-1), colors.navy), # Navy text for labels
+                ('PADDING', (0,0), (-1,-1), 10),
                 ('BOTTOMPADDING', (0,0), (-1,-1), 10),
-                ('TEXTCOLOR', (0,-1), (-1,-1), colors.red), # Total en rojo
             ]))
             
             elements.append(t)
+            elements.append(Spacer(1, 30))
+            
+            # Total Box
+            total_data = [[Paragraph(f"TOTAL A PAGAR: ${pago_data['total']:.2f}", 
+                                   ParagraphStyle('TotalBig', parent=self.title_style, fontSize=18, textColor=colors.red))]]
+            t_total = Table(total_data, colWidths=[16*cm])
+            t_total.setStyle(TableStyle([
+                ('BOX', (0,0), (-1,-1), 2, colors.red),
+                ('BACKGROUND', (0,0), (-1,-1), colors.Color(1, 0.95, 0.95)),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('PADDING', (0,0), (-1,-1), 15),
+            ]))
+            elements.append(t_total)
             elements.append(Spacer(1, 40))
             
             # Firmas
             firmas_data = [
-                ["_____________________________", "_____________________________"],
-                ["FIRMA DE CONFORMIDAD", "AUTORIZÓ"]
+                [Paragraph("_____________________________", self.center_style), 
+                 Paragraph("_____________________________", self.center_style)],
+                [Paragraph("FIRMA DE CONFORMIDAD", self.center_style), 
+                 Paragraph("AUTORIZÓ", self.center_style)]
             ]
             t_firmas = Table(firmas_data, colWidths=[8*cm, 8*cm])
             t_firmas.setStyle(TableStyle([
                 ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
             ]))
             elements.append(t_firmas)
             
@@ -176,7 +200,7 @@ class ReceiptGenerator:
             return filepath
             
         except Exception as e:
-            self.log_error("generate_account_statement", e)
+            self.log_error("generate_waste_receipt", e)
             print(f"Error estado cuenta: {e}")
             return None
 
@@ -256,7 +280,7 @@ class ReceiptGenerator:
         logo_path = os.path.join("assets", "logo.jpg")
         logo_img = None
         if os.path.exists(logo_path):
-            logo_img = Image(logo_path, width=2.5*cm, height=2.5*cm)
+            logo_img = Image(logo_path, width=4*cm, height=2.5*cm)
         
         # Textos del encabezado
         header_text = [
@@ -471,40 +495,51 @@ class ReceiptGenerator:
             
             elements = []
             
-            # --- ENCABEZADO ---
+            # Logo
             logo_path = os.path.join("assets", "logo.jpg")
             if os.path.exists(logo_path):
-                elements.append(Image(logo_path, width=3*cm, height=3*cm))
+                elements.append(Image(logo_path, width=4*cm, height=2.5*cm))
                 elements.append(Spacer(1, 10))
             
+            # Títulos
             elements.append(Paragraph("COMITÉ DE AGUA POTABLE Y ALCANTARILLADO", self.title_style))
             elements.append(Paragraph("DEL BARRIO DE SAN ANTONIO TECAMACHALCO, PUE.", self.subtitle_style))
-            elements.append(Spacer(1, 20))
-            
+            elements.append(Spacer(1, 10))
             elements.append(Paragraph("ESTADO DE CUENTA", self.title_style))
             elements.append(Spacer(1, 20))
             
             # --- DATOS DEL USUARIO ---
             user_data = [
-                [Paragraph(f"<b>USUARIO No.:</b> {user['id']}", self.normal_style),
-                 Paragraph(f"<b>NOMBRE:</b> {user['nombre']}", self.normal_style)],
-                [Paragraph(f"<b>DIRECCIÓN:</b> {user['direccion']}", self.normal_style),
-                 Paragraph(f"<b>FECHA:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", self.normal_style)]
+                [Paragraph("<b>USUARIO:</b>", self.normal_style), Paragraph(f"{user['nombre']} (ID: {user['id']})", self.normal_style)],
+                [Paragraph("<b>DIRECCIÓN:</b>", self.normal_style), Paragraph(user['direccion'], self.normal_style)],
+                [Paragraph("<b>FECHA EMISIÓN:</b>", self.normal_style), Paragraph(datetime.now().strftime('%d/%m/%Y %H:%M'), self.normal_style)]
             ]
             
-            t_user = Table(user_data, colWidths=[9*cm, 9*cm])
+            t_user = Table(user_data, colWidths=[4*cm, 14*cm])
             t_user.setStyle(TableStyle([
-                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
                 ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                ('BACKGROUND', (0,0), (0,-1), colors.lightgrey),
+                ('PADDING', (0,0), (-1,-1), 4),
             ]))
             elements.append(t_user)
             elements.append(Spacer(1, 20))
             
             # --- ADVERTENCIA DE SUSPENSIÓN ---
             if deuda_meses.get('suspension', False):
-                elements.append(Paragraph("¡AVISO DE SUSPENSIÓN DE SERVICIO!", 
-                    ParagraphStyle('Warning', parent=self.title_style, textColor=colors.red, fontSize=16)))
-                elements.append(Paragraph("Su adeudo supera los 6 meses. Por favor regularice su situación.", self.center_style))
+                warning_data = [[
+                    Paragraph("<b>¡AVISO DE SUSPENSIÓN DE SERVICIO!</b><br/><br/>Su adeudo supera los 6 meses. Por favor regularice su situación.", 
+                    ParagraphStyle('Warning', parent=self.center_style, textColor=colors.red, fontSize=12))
+                ]]
+                t_warning = Table(warning_data, colWidths=[18*cm])
+                t_warning.setStyle(TableStyle([
+                    ('BOX', (0,0), (-1,-1), 2, colors.red),
+                    ('BACKGROUND', (0,0), (-1,-1), colors.Color(1, 0.9, 0.9)),
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ('PADDING', (0,0), (-1,-1), 10),
+                ]))
+                elements.append(t_warning)
                 elements.append(Spacer(1, 20))
             
             # --- TABLA DE ADEUDOS ---
@@ -545,13 +580,16 @@ class ReceiptGenerator:
             ]
             table_data.append(total_row)
             
-            t_adeudos = Table(table_data, colWidths=[8*cm, 8*cm, 3*cm])
+            t_adeudos = Table(table_data, colWidths=[8*cm, 7*cm, 3*cm])
             t_adeudos.setStyle(TableStyle([
                 ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-                ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                ('BACKGROUND', (0,0), (-1,0), colors.lightgrey), # Header background
+                ('ROWBACKGROUNDS', (0,1), (-1,-2), [colors.white, colors.Color(0.95, 0.95, 0.95)]), # Zebra striping
                 ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('SPAN', (0,-1), (-2,-1)),
+                ('SPAN', (0,-1), (-2,-1)), # Span total label
+                ('BACKGROUND', (0,-1), (-1,-1), colors.lightgrey), # Total row background
+                ('BOX', (0,0), (-1,-1), 1, colors.black),
             ]))
             elements.append(t_adeudos)
             
