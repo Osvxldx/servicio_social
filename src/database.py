@@ -574,8 +574,10 @@ class DatabaseManager:
             # La regla dice "pagar los 3 primeros domingos". Si estamos en el mes, se debe pagar.
             
             fecha_mes = datetime(anio, m, 15) # Día arbitrario para verificar estatus
-            if fecha_mes > datetime.now():
-                continue
+            # if fecha_mes > datetime.now():
+            #     continue
+            # MODIFICADO: Permitir cobro del mes actual aunque no haya pasado el día 15
+            # Esto corrige el bug donde el monto sale en cero si se consulta a principio de mes
                 
             activo = False
             if not historial:

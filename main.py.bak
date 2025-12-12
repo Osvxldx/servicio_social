@@ -560,14 +560,5 @@ class MainApplication:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.withdraw()  # Ocultar ventana principal al inicio
-    
-    # Intentar autenticación
-    if authenticate(root):
-        root.deiconify()  # Mostrar ventana principal si el login es exitoso
-        app = MainApplication(root)
-        root.mainloop()
-    else:
-        # Si falla la autenticación o se cierra la ventana
-        root.destroy()
-        sys.exit()
+    app = MainApplication(root)
+    root.mainloop()

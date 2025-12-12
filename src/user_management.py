@@ -393,15 +393,13 @@ class UserManagementWindow:
             return
             
         try:
-            # Generar reporte de adeudo
             generator = ReceiptGenerator()
-            filename = generator.generate_debt_summary(int(user_id))
+            pdf_path = generator.generate_account_statement(int(user_id))
             
-            if filename and os.path.exists(filename):
-                os.startfile(filename)
+            if pdf_path and os.path.exists(pdf_path):
+                os.startfile(pdf_path)
             else:
-                messagebox.showwarning("Aviso", "No se pudo generar el reporte")
-                
+                messagebox.showerror("Error", "No se pudo generar el estado de cuenta")
         except Exception as e:
             messagebox.showerror("Error", f"Error al generar reporte: {str(e)}")
 
