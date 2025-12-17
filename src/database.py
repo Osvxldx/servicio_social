@@ -40,7 +40,10 @@ class DatabaseManager:
                     vacas INTEGER DEFAULT 0,
                     inquilinos INTEGER DEFAULT 0,
                     tomas INTEGER DEFAULT 1,
+                    hidrantes INTEGER DEFAULT 0,
                     estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado', 'Baja', 'Suspendida')),
+                    numero_usuario TEXT,
+                    observaciones TEXT,
                     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     fecha_alta TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     fecha_baja TIMESTAMP
@@ -108,7 +111,8 @@ class DatabaseManager:
                 ('committee_address', 'San Antonio'),
                 ('committee_phone', ''),
                 ('committee_president', ''),
-                ('committee_treasurer', '')
+                ('committee_treasurer', ''),
+                ('costo_hidrante', '50.0')
             ]
             
             for clave, valor in config_default:
@@ -141,7 +145,10 @@ class DatabaseManager:
             if 'vacas' not in columns: missing_columns.append('vacas')
             if 'inquilinos' not in columns: missing_columns.append('inquilinos')
             if 'tomas' not in columns: missing_columns.append('tomas')
+            if 'hidrantes' not in columns: missing_columns.append('hidrantes')
             if 'fecha_alta' not in columns: missing_columns.append('fecha_alta')
+            if 'numero_usuario' not in columns: missing_columns.append('numero_usuario')
+            if 'observaciones' not in columns: missing_columns.append('observaciones')
             
             # También necesitamos migrar si el check de estado es antiguo, pero eso es difícil de detectar con PRAGMA.
             # Asumiremos que si faltan columnas o si queremos asegurar la estructura, hacemos la migración.
@@ -167,7 +174,10 @@ class DatabaseManager:
                         vacas INTEGER DEFAULT 0,
                         inquilinos INTEGER DEFAULT 0,
                         tomas INTEGER DEFAULT 1,
+                        hidrantes INTEGER DEFAULT 0,
                         estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado', 'Baja', 'Suspendida')),
+                        numero_usuario TEXT,
+                        observaciones TEXT,
                         fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         fecha_alta TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         fecha_baja TIMESTAMP
@@ -180,10 +190,11 @@ class DatabaseManager:
                 if 'sesion' in columns: cols_to_copy.append('sesion')
                 if 'vacas' in columns: cols_to_copy.append('vacas')
                 if 'inquilinos' in columns: cols_to_copy.append('inquilinos')
+                if 'hidrantes' in columns: cols_to_copy.append('hidrantes')
                 
                 # Columnas destino (las mismas que origen)
                 cols_dest = list(cols_to_copy)
-                
+
                 # Si existían las nuevas (caso raro), las copiamos, si no, toman default
                 if 'tomas' in columns: 
                     cols_to_copy.append('tomas')
@@ -191,6 +202,13 @@ class DatabaseManager:
                 else:
                     # Si no existía, se llenará con default 1
                     pass
+
+                if 'hidrantes' in columns:
+                    # Ya se agrego arriba si existia
+                    pass 
+                else:
+                    cols_to_copy.append('0') # Default valor for select
+                    cols_dest.append('hidrantes')
 
                 if 'fecha_alta' in columns:
                     cols_to_copy.append('fecha_alta')
@@ -203,6 +221,18 @@ class DatabaseManager:
                 if 'fecha_baja' in columns:
                     cols_to_copy.append('fecha_baja')
                     cols_dest.append('fecha_baja')
+
+                # Nuevas columnas
+                if 'numero_usuario' in columns:
+                    cols_to_copy.append('numero_usuario')
+                    cols_dest.append('numero_usuario')
+                else:
+                    cols_dest.append('numero_usuario')
+                    cols_to_copy.append('CAST(id AS TEXT)')
+
+                if 'observaciones' in columns:
+                    cols_to_copy.append('observaciones')
+                    cols_dest.append('observaciones')
 
                 cols_src_str = ", ".join(cols_to_copy)
                 cols_dest_str = ", ".join(cols_dest)
@@ -281,7 +311,8 @@ class DatabaseManager:
     # === GESTIÓN DE USUARIOS ===
     
     def crear_usuario(self, nombre: str, sesion: int, direccion: str = "", 
-                     telefono: str = "", email: str = "", vacas: int = 0, inquilinos: int = 0, tomas: int = 1, estado: str = "Activo") -> bool:
+                     telefono: str = "", email: str = "", vacas: int = 0, inquilinos: int = 0, 
+                     tomas: int = 1, hidrantes: int = 0, numero_usuario: str = None, estado: str = "Activo") -> bool:
         """
         Crea un nuevo usuario
         
@@ -314,10 +345,13 @@ class DatabaseManager:
                 nuevo_id += 1
             
             # Insertar con el ID específico
+            if numero_usuario is None:
+                numero_usuario = str(nuevo_id)
+                
             cursor.execute('''
-                INSERT INTO usuarios (id, nombre, sesion, direccion, telefono, email, vacas, inquilinos, tomas, estado)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (nuevo_id, nombre, sesion, direccion, telefono, email, vacas, inquilinos, tomas, estado))
+                INSERT INTO usuarios (id, nombre, sesion, direccion, telefono, email, vacas, inquilinos, tomas, hidrantes, numero_usuario, estado)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (nuevo_id, nombre, sesion, direccion, telefono, email, vacas, inquilinos, tomas, hidrantes, numero_usuario, estado))
             conn.commit()
             
             # Registrar en historial
@@ -339,6 +373,16 @@ class DatabaseManager:
             cursor.execute('SELECT * FROM usuarios WHERE id = ?', (user_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def buscar_usuarios_por_numero(self, numero: str) -> List[Dict]:
+        """Busca usuarios por numero_usuario"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT * FROM usuarios WHERE numero_usuario LIKE ?", (f"%{numero}%",))
+            return [dict(row) for row in cursor.fetchall()]
         finally:
             conn.close()
 
@@ -492,12 +536,15 @@ class DatabaseManager:
             pago_ids = [p[0] for p in pagos]
             
             if pago_ids:
-                # 2. Eliminar detalles de pagos
-                placeholders = ','.join(['?'] * len(pago_ids))
-                cursor.execute(f'DELETE FROM detalle_pagos WHERE pago_id IN ({placeholders})', pago_ids)
+                # REGLA: No eliminar si ya ha pagado
+                conn.close()
+                return False
                 
-                # 3. Eliminar pagos
-                cursor.execute('DELETE FROM pagos WHERE usuario_id = ?', (usuario_id,))
+                # Código antiguo de eliminación en cascada comentado por regla de negocio
+                # placeholders = ','.join(['?'] * len(pago_ids))
+                # cursor.execute(f'DELETE FROM detalle_pagos WHERE pago_id IN ({placeholders})', pago_ids)
+                # cursor.execute('DELETE FROM pagos WHERE usuario_id = ?', (usuario_id,))
+            
             
             # 4. Eliminar usuario
             cursor.execute('DELETE FROM usuarios WHERE id = ?', (usuario_id,))
@@ -652,8 +699,11 @@ class DatabaseManager:
             if es_tardio:
                 costo = monto_con_recargo
             
-            # Aplicar tomas
-            costo_total_mes = costo * tomas
+            # Aplicar tomas e hidrantes
+            hidrantes = u.get('hidrantes', 0)
+            costo_hidrante = float(self.obtener_configuracion('costo_hidrante') or 50.0)
+            
+            costo_total_mes = (costo * tomas) + (costo_hidrante * hidrantes)
             
             # Aplicar penalización doble
             if aplicar_doble:
@@ -827,6 +877,52 @@ class DatabaseManager:
                 pago['detalles'] = [dict(detalle) for detalle in detalles]
             
             return pagos
+        finally:
+            conn.close()
+
+    def obtener_usuarios_deudores(self, anio: int) -> List[Dict]:
+        """Obtiene usuarios que deben meses en un año específico."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        deudores = []
+        try:
+            cursor.execute("SELECT * FROM usuarios WHERE estado = 'Activo'")
+            usuarios = [dict(row) for row in cursor.fetchall()]
+            
+            now = datetime.now()
+            mes_actual = now.month if anio == now.year else 12
+            
+            for u in usuarios:
+                pagos = self.obtener_pagos_usuario_anio(u['id'], anio)
+                meses_pagados = set(pagos or [])
+                
+                mes_inicio = 1
+                fecha_alta_str = u.get('fecha_alta') or u.get('fecha_registro')
+                if fecha_alta_str:
+                    try:
+                        fecha_alta = datetime.strptime(fecha_alta_str, '%Y-%m-%d %H:%M:%S')
+                        if fecha_alta.year == anio:
+                            mes_inicio = fecha_alta.month
+                        elif fecha_alta.year > anio:
+                            continue
+                    except:
+                        pass
+
+                meses_deuda = []
+                for m in range(mes_inicio, mes_actual + 1):
+                     if m not in meses_pagados:
+                         meses_deuda.append(m)
+                
+                if meses_deuda:
+                    u['meses_deuda'] = meses_deuda
+                    u['cantidad_deuda'] = len(meses_deuda)
+                    deudores.append(u)
+                    
+            return deudores
+        except sqlite3.Error as e:
+            print(f"Error al obtener deudores: {e}")
+            return []
         finally:
             conn.close()
     

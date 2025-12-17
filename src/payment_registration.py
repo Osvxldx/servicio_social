@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import calendar
 from .database import get_db_manager
 from .receipt_generator import ReceiptGenerator
+from .excel_manager import ExcelManager
 import os
 
 class PaymentRegistrationWindow:
@@ -31,6 +32,7 @@ class PaymentRegistrationWindow:
         self.selected_months = set()
         self.cart_items = []
         self.total_amount = 0.0
+        self.last_receipt_path = None
         
         # Variables de configuración
         self.load_config_values()
@@ -45,123 +47,7 @@ class PaymentRegistrationWindow:
         self.cost_cooperacion = float(self.db.obtener_configuracion('costo_cooperacion') or 50.0)
         self.cost_toma_nueva = float(self.db.obtener_configuracion('costo_toma_nueva') or 3000.0)
         self.fine_absence = float(self.db.obtener_configuracion('multa_inasistencia') or 200.0)
-
-    def setup_ui(self):
-        # Header con botón Volver
-        header_frame = tk.Frame(self.root, bg='#2c3e50', height=60)
-        header_frame.pack(fill=tk.X)
-        header_frame.pack_propagate(False)
-        
-        tk.Label(
-            header_frame, 
-            text="Registro de Pagos", 
-            font=('Arial', 20, 'bold'), 
-            fg='white', 
-            bg='#2c3e50'
-        ).pack(side=tk.LEFT, padx=20)
-        
-        tk.Button(
-            header_frame,
-            text="Volver al Menú",
-            command=self.root.destroy,
-            bg='#e74c3c',
-            fg='white',
-            font=('Arial', 10, 'bold')
-        ).pack(side=tk.RIGHT, padx=20)
-
-        # Contenedor principal
-        main_container = tk.Frame(self.root)
-        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        # Panel Izquierdo
-        left_panel = tk.Frame(main_container, width=300)
-        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        
-        self.create_search_panel(left_panel)
-        self.create_user_info_panel(left_panel)
-        
-        # Panel Central
-        center_panel = tk.Frame(main_container)
-        center_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
-        
-        self.create_months_panel(center_panel)
-        self.create_extras_panel(center_panel)
-        
-        # Panel Derecho
-        right_panel = tk.Frame(main_container, width=350)
-        right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
-        
-        self.create_summary_panel(right_panel)
-
-    def create_search_panel(self, parent):
-        frame = tk.LabelFrame(parent, text="Buscar Usuario", font=('Arial', 10, 'bold'))
-        frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # Búsqueda por nombre o ID
-        tk.Label(frame, text="Nombre o ID:").pack(anchor='w', padx=5)
-        self.search_var = tk.StringVar()
-        self.search_var.trace('w', self.on_search_change)
-        tk.Entry(frame, textvariable=self.search_var).pack(fill=tk.X, padx=5, pady=(0, 5))
-        
-        # Lista de resultados
-        self.results_list = tk.Listbox(frame, height=6)
-        self.results_list.pack(fill=tk.X, padx=5, pady=5)
-        self.results_list.bind('<<ListboxSelect>>', self.on_user_select)
-
-    def create_user_info_panel(self, parent):
-        self.info_frame = tk.LabelFrame(parent, text="Información del Usuario", font=('Arial', 10, 'bold'))
-        self.info_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.lbl_nombre = tk.Label(self.info_frame, text="Seleccione un usuario", font=('Arial', 12, 'bold'), wraplength=280)
-        self.lbl_nombre.pack(pady=10)
-        
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Módulo de registro de pagos
-"""
-
-import tkinter as tk
-from tkinter import ttk, messagebox
-from datetime import datetime, timedelta
-import calendar
-from .database import get_db_manager
-from .receipt_generator import ReceiptGenerator
-import os
-
-class PaymentRegistrationWindow:
-    def __init__(self, parent=None):
-        if parent:
-            self.root = tk.Toplevel(parent)
-        else:
-            self.root = tk.Tk()
-            
-        self.root.title("Registro de Pagos")
-        self.root.geometry("1200x700")
-        self.root.state('zoomed') if hasattr(self.root, 'state') else None
-        
-        self.db = get_db_manager()
-        self.receipt_gen = ReceiptGenerator()
-        
-        # Variables de estado
-        self.current_user = None
-        self.selected_months = set()
-        self.cart_items = []
-        self.total_amount = 0.0
-        
-        # Variables de configuración
-        self.load_config_values()
-        
-        self.setup_ui()
-        
-    def load_config_values(self):
-        """Carga valores de configuración necesarios"""
-        self.monthly_fee = float(self.db.obtener_configuracion('cuota_mensual') or 70.0)
-        self.cost_vacas = float(self.db.obtener_configuracion('costo_vacas') or 0.0)
-        self.cost_inquilinos = float(self.db.obtener_configuracion('costo_inquilinos') or 0.0)
-        self.cost_cooperacion = float(self.db.obtener_configuracion('costo_cooperacion') or 50.0)
-        self.cost_toma_nueva = float(self.db.obtener_configuracion('costo_toma_nueva') or 3000.0)
-        self.fine_absence = float(self.db.obtener_configuracion('multa_inasistencia') or 200.0)
+        self.cost_hidrante = float(self.db.obtener_configuracion('costo_hidrante') or 50.0)
 
     def setup_ui(self):
         # Header con botón Volver
@@ -250,6 +136,9 @@ class PaymentRegistrationWindow:
         self.lbl_inquilinos = tk.Label(details_frame, text="Inquilinos: 0")
         self.lbl_inquilinos.pack(anchor='w')
         
+        self.lbl_hidrantes = tk.Label(details_frame, text="Hidrantes: 0")
+        self.lbl_hidrantes.pack(anchor='w')
+        
         # Historial reciente
         tk.Label(self.info_frame, text="\nÚltimos Pagos:", font=('Arial', 9, 'bold')).pack(anchor='w', padx=5)
         self.history_list = tk.Listbox(self.info_frame, height=8, bg='#f0f0f0')
@@ -337,6 +226,13 @@ class PaymentRegistrationWindow:
                                  bg='#2ecc71', fg='white', font=('Arial', 14, 'bold'), state='disabled')
         self.btn_pagar.pack(fill=tk.X, padx=10, pady=10)
 
+        # Botón Abrir Último Recibo
+        self.btn_open_receipt = tk.Button(frame, text="Abrir Último Recibo (Excel)", 
+                                        command=self.open_last_receipt,
+                                        bg='#3498db', fg='white', font=('Arial', 10, 'bold'), 
+                                        state='disabled')
+        self.btn_open_receipt.pack(fill=tk.X, padx=10, pady=(0, 10))
+
     # === LÓGICA ===
 
     def on_search_change(self, *args):
@@ -381,8 +277,13 @@ class PaymentRegistrationWindow:
         self.lbl_id.config(text=f"ID: {u['id']}")
         self.lbl_direccion.config(text=f"Dirección: {u['direccion']}")
         self.lbl_tomas.config(text=f"Tomas: {u.get('tomas', 1)}")
-        self.lbl_vacas.config(text=f"Vacas: {u['vacas']}")
-        self.lbl_inquilinos.config(text=f"Inquilinos: {u['inquilinos']}")
+        self.lbl_vacas.config(text=f"Vacas: {u.get('vacas', 0)}")
+        self.lbl_inquilinos.config(text=f"Inquilinos: {u.get('inquilinos', 0)}")
+        self.lbl_hidrantes.config(text=f"Hidrantes: {u.get('hidrantes', 0)}")
+        
+        # ID puede ser numero_usuario si existe
+        display_id = u.get('numero_usuario', u['id']) or u['id']
+        self.lbl_id.config(text=f"No. Usuario: {display_id} (ID Sis: {u['id']})")
         
         # Cargar historial
         self.history_list.delete(0, tk.END)
@@ -487,9 +388,11 @@ class PaymentRegistrationWindow:
         for m in sorted_months:
             is_late = self.is_late_payment(m, year)
             
-            # Base mensual ($70) * Tomas
+            # Base mensual: (Tomas * $70) + (Hidrantes * $Cost)
             tomas = self.current_user.get('tomas', 1)
-            base_cost = self.monthly_fee * tomas
+            hidrantes = self.current_user.get('hidrantes', 0)
+            
+            base_cost = (self.monthly_fee * tomas) + (self.cost_hidrante * hidrantes)
             
             self.cart_items.append({
                 'concepto': f"Mensualidad",
@@ -499,13 +402,16 @@ class PaymentRegistrationWindow:
                 'cantidad': 1
             })
             
-            # Recargo si es tarde ($30 para llegar a $100) * Tomas
+            # Recargo si es tarde ($30 para llegar a $100) * Tomas + (Recargo Hidrante??)
+            # Simplificación: Recargo aplica solo a Tomas por ahora o general.
+            # El usuario no especificó recargo para hidrantes. Asumimos lógica de tomas.
             if is_late:
                 # El recargo base es (100 - 70) = 30.
-                # Si son 2 tomas, debería ser (200 - 140) = 60.
-                # O sea, recargo_base * tomas.
                 recargo_base = 100.0 - self.monthly_fee
                 recargo_total = recargo_base * tomas
+                
+                # Si queremos aplicar recargo a hidrantes también, necesitaríamos saber la cuota con recargo.
+                # Por ahora solo tomas como antes.
                 
                 if recargo_total > 0:
                     self.cart_items.append({
@@ -602,15 +508,47 @@ class PaymentRegistrationWindow:
                 if pago_id:
                     messagebox.showinfo("Éxito", "Pago registrado correctamente")
                     
-                    # Generar Recibo
+                    # Generar Recibo Excel
                     try:
-                        pdf_path = self.receipt_gen.generate_receipt(pago_id)
-                        if pdf_path and os.path.exists(pdf_path):
-                            os.startfile(pdf_path) if os.name == 'nt' else None
-                        else:
-                            messagebox.showwarning("Aviso", "El recibo se generó pero no se pudo abrir automáticamente.")
+                        # Preparar datos para el Excel
+                        datos_recibo = {
+                            'folio': pago_id,
+                            'fecha': datetime.now().strftime("%d/%m/%Y"),
+                            'id_usuario': self.current_user['id'],
+                            'nombre': self.current_user['nombre'],
+                            'direccion': self.current_user['direccion'],
+                            'tomas': self.current_user.get('tomas', 1),
+                            'total': self.total_amount,
+                            'conceptos': []
+                        }
+                        
+                        # Formatear conceptos
+                        for item in self.cart_items:
+                            importe = item['precio'] * item.get('cantidad', 1)
+                            desc = item['concepto']
+                            # Agregar mes a la descripción si corresponde (igual que en el Treeview)
+                            if 'mes' in item and 'Recargo' not in desc:
+                                months = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+                                if 1 <= item['mes'] <= 12:
+                                    desc += f" {months[item['mes']]}"
+                            
+                            datos_recibo['conceptos'].append({
+                                'descripcion': desc,
+                                'importe': importe
+                            })
+                            
+                        # Generar y guardar ruta
+                        ruta_excel = ExcelManager.generar_recibo(datos_recibo)
+                        if ruta_excel and os.path.exists(ruta_excel):
+                            self.last_receipt_path = ruta_excel
+                            self.btn_open_receipt.config(state='normal')
+                            
+                            # Preguntar si abrir
+                            if messagebox.askyesno("Recibo Generado", "Pago registrado.\n¿Desea abrir el recibo en Excel para imprimir?"):
+                                os.startfile(ruta_excel)
+                        
                     except Exception as e:
-                        messagebox.showerror("Error Recibo", f"Pago registrado pero error al abrir recibo: {e}")
+                        messagebox.showerror("Error Recibo Excel", f"Pago registrado pero error al generar Excel: {e}")
                     
                     # Resetear
                     self.reset_selections()
@@ -685,3 +623,21 @@ class PaymentRegistrationWindow:
                 messagebox.showerror("Error", "Monto inválido")
         
         tk.Button(dialog, text="Registrar y Generar Recibo", command=process, bg='#e74c3c', fg='white').pack(pady=20)
+
+    def open_last_receipt(self):
+        """Abre el último recibo generado"""
+        if self.last_receipt_path and os.path.exists(self.last_receipt_path):
+            try:
+                os.startfile(self.last_receipt_path)
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo abrir el archivo: {e}")
+        else:
+            # Intentar abrir el por defecto si existe
+            default_path = os.path.abspath('recibo_temp.xlsx')
+            if os.path.exists(default_path):
+                try:
+                    os.startfile(default_path)
+                except Exception as e:
+                    messagebox.showerror("Error", f"No se pudo abrir el archivo: {e}")
+            else:
+                messagebox.showwarning("Aviso", "No hay recibo reciente para abrir.")

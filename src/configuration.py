@@ -147,7 +147,8 @@ class ConfigurationWindow:
             ('Cooperación:', 'costo_cooperacion'),
             ('Costo Toma Nueva:', 'costo_toma_nueva'),
             ('Multa por Retraso:', 'multa_retraso'),
-            ('Multa Inasistencia:', 'multa_inasistencia')
+            ('Multa Inasistencia:', 'multa_inasistencia'),
+            ('Costo Hidrante:', 'costo_hidrante')
         ]
         
         for i, (label_text, key) in enumerate(fields):
@@ -336,7 +337,10 @@ class ConfigurationWindow:
                 'costo_cooperacion': '100.0',
                 'costo_toma_nueva': '500.0',
                 'multa_retraso': '100.0',
-                'multa_inasistencia': '200.0'
+                'costo_toma_nueva': '500.0',
+                'multa_retraso': '100.0',
+                'multa_inasistencia': '200.0',
+                'costo_hidrante': '50.0'
             }
             
             for key, var in self.rates_vars.items():

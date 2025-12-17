@@ -10,6 +10,7 @@ from .database import get_db_manager
 import re
 import os
 from .receipt_generator import ReceiptGenerator
+from .payment_history import PaymentHistoryWindow
 
 class UserManagementWindow:
     _instance = None
@@ -51,12 +52,16 @@ class UserManagementWindow:
         self.user_vacas_var = tk.IntVar(value=0)
         self.user_inquilinos_var = tk.IntVar(value=0)
         self.user_tomas_var = tk.IntVar(value=1)
+        self.user_hidrantes_var = tk.IntVar(value=0)
+        self.user_number_var = tk.StringVar()
         self.user_fecha_alta_var = tk.StringVar()
         self.user_fecha_baja_var = tk.StringVar()
         
         # Filtros
         self.filter_sesion_var = tk.StringVar(value="Todas")
         self.filter_status_var = tk.StringVar(value="Todos")
+        self.filter_year_debt_var = tk.StringVar(value="Todos")
+
         
         self.setup_ui()
         self.refresh_users_list()
@@ -89,15 +94,22 @@ class UserManagementWindow:
         top_frame = tk.Frame(main_frame)
         top_frame.pack(fill=tk.X, pady=(0, 10))
         
+        # Acciones
+        actions_frame = tk.LabelFrame(top_frame, text="Acciones", font=('Arial', 10, 'bold'))
+        actions_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
+        
+        tk.Button(actions_frame, text="Agregar Nuevo Usuario", command=self.open_new_user_dialog, bg='#27ae60', fg='white', font=('Arial', 12, 'bold'), height=2, width=20).pack(side=tk.LEFT, padx=10, pady=5)
+        tk.Button(actions_frame, text="Volver al Menú", command=self.on_close, bg='#7f8c8d', fg='white', font=('Arial', 12, 'bold'), height=2, width=15).pack(side=tk.LEFT, padx=10, pady=5)
+
         # Búsqueda y Filtros
         search_frame = tk.LabelFrame(top_frame, text="Buscar y Filtrar", font=('Arial', 10, 'bold'))
-        search_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        search_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
         
         # Row 1: Search
         row1 = tk.Frame(search_frame)
         row1.pack(fill=tk.X, padx=5, pady=2)
         
-        tk.Label(row1, text="ID:").pack(side=tk.LEFT, padx=5)
+        tk.Label(row1, text="No. Usuario:").pack(side=tk.LEFT, padx=5)
         tk.Entry(row1, textvariable=self.search_id_var, width=10).pack(side=tk.LEFT, padx=5)
         
         tk.Label(row1, text="Nombre:").pack(side=tk.LEFT, padx=5)
@@ -116,14 +128,13 @@ class UserManagementWindow:
         tk.Label(row2, text="Estado:").pack(side=tk.LEFT, padx=5)
         ttk.Combobox(row2, textvariable=self.filter_status_var, values=["Todos", "Activo", "Cancelado", "Baja", "Suspendida"], state="readonly", width=12).pack(side=tk.LEFT, padx=5)
         
+        tk.Label(row2, text="Deuda Año:").pack(side=tk.LEFT, padx=5)
+        current_year = 2024 # O datetime.now().year
+        years = ["Todos"] + [str(y) for y in range(current_year, 2020, -1)]
+        ttk.Combobox(row2, textvariable=self.filter_year_debt_var, values=years, state="readonly", width=8).pack(side=tk.LEFT, padx=5)
+
+        
         tk.Button(row2, text="Aplicar Filtros", command=self.refresh_users_list, bg='#2ecc71', fg='white').pack(side=tk.LEFT, padx=10)
-        
-        # Acciones
-        actions_frame = tk.LabelFrame(top_frame, text="Acciones", font=('Arial', 10, 'bold'))
-        actions_frame.pack(side=tk.RIGHT, fill=tk.X, padx=(5, 0))
-        
-        tk.Button(actions_frame, text="Agregar Nuevo Usuario", command=self.open_new_user_dialog, bg='#27ae60', fg='white', font=('Arial', 12, 'bold'), height=2, width=20).pack(side=tk.LEFT, padx=10, pady=5)
-        tk.Button(actions_frame, text="Volver al Menú", command=self.on_close, bg='#7f8c8d', fg='white', font=('Arial', 12, 'bold'), height=2, width=15).pack(side=tk.LEFT, padx=10, pady=5)
         
         # Frame central: Lista de usuarios y Detalles
         content_frame = tk.Frame(main_frame)
@@ -133,16 +144,18 @@ class UserManagementWindow:
         list_frame = tk.Frame(content_frame)
         list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
         
-        columns = ('id', 'nombre', 'sesion', 'tomas', 'estado')
+        columns = ('id', 'numero_usuario', 'nombre', 'sesion', 'tomas', 'estado')
         self.users_tree = ttk.Treeview(list_frame, columns=columns, show='headings')
         
         self.users_tree.heading('id', text='ID')
+        self.users_tree.heading('numero_usuario', text='No. Usuario')
         self.users_tree.heading('nombre', text='Nombre')
         self.users_tree.heading('sesion', text='Sesión')
         self.users_tree.heading('tomas', text='Tomas')
         self.users_tree.heading('estado', text='Estado')
         
         self.users_tree.column('id', width=50, anchor='center')
+        self.users_tree.column('numero_usuario', width=80, anchor='center')
         self.users_tree.column('nombre', width=200)
         self.users_tree.column('sesion', width=50, anchor='center')
         self.users_tree.column('tomas', width=50, anchor='center')
@@ -170,7 +183,8 @@ class UserManagementWindow:
         
         # Campos
         fields = [
-            ("ID:", self.user_id_var, True), # Readonly
+            ("ID (Sistema):", self.user_id_var, True), # Readonly
+            ("No. Usuario:", self.user_number_var, False), # Editable
             ("Nombre:", self.user_name_var, False),
             ("Dirección:", self.user_address_var, False),
             ("Teléfono:", self.user_phone_var, False),
@@ -178,6 +192,7 @@ class UserManagementWindow:
             ("Vacas:", self.user_vacas_var, False),
             ("Inquilinos:", self.user_inquilinos_var, False),
             ("Tomas:", self.user_tomas_var, False),
+            ("Hidrantes:", self.user_hidrantes_var, False),
             ("Fecha Alta:", self.user_fecha_alta_var, True),
             ("Fecha Baja:", self.user_fecha_baja_var, True)
         ]
@@ -211,6 +226,9 @@ class UserManagementWindow:
         self.history_btn = tk.Button(btn_frame, text="Ver Historial de Pagos", command=self.show_payment_history, bg='#8e44ad', fg='white', state='disabled')
         self.history_btn.pack(fill=tk.X, pady=5)
 
+        self.obs_btn = tk.Button(btn_frame, text="Ver Observaciones", command=self.show_observations, bg='#f39c12', fg='white', state='disabled')
+        self.obs_btn.pack(fill=tk.X, pady=5)
+
         self.delete_btn = tk.Button(btn_frame, text="Eliminar Usuario", command=self.delete_user, bg='#c0392b', fg='white', state='disabled')
         self.delete_btn.pack(fill=tk.X, pady=5)
 
@@ -232,8 +250,8 @@ class UserManagementWindow:
         users = []
         if user_id:
             try:
-                u = db.buscar_usuario_por_id(int(user_id))
-                if u: users = [u]
+                # Búsqueda por número de usuario (alfanumérico) - Solicitud de usuario: YA NO BUSCAR POR ID
+                users = db.buscar_usuarios_por_numero(user_id)
             except ValueError:
                 pass
         elif name:
@@ -259,8 +277,23 @@ class UserManagementWindow:
             
             filtered_users.append(u)
         
+        # Filtro Deuda Año (requiere consulta extra o filtrado complejo)
+        filter_year = self.filter_year_debt_var.get()
+        if filter_year != "Todos" and filter_year.isdigit():
+            # Obtener lista de deudores para ese año
+            anio = int(filter_year)
+            # Optimización: Podríamos hacerlo en la query inicial, pero aquí filtramos la lista ya obtenida
+            # Como `obtener_usuarios_deudores` devuelve info completa, podemos cruzar IDs
+            deudores = db.obtener_usuarios_deudores(anio)
+            deudores_ids = {d['id'] for d in deudores}
+            
+            # Intersección
+            filtered_users = [u for u in filtered_users if u['id'] in deudores_ids]
+
+        
         for u in filtered_users:
-            self.users_tree.insert('', 'end', values=(u['id'], u['nombre'], u['sesion'], u.get('tomas', 1), u['estado']))
+            numero_usuario = u.get('numero_usuario') or str(u['id'])
+            self.users_tree.insert('', 'end', values=(u['id'], numero_usuario, u['nombre'], u['sesion'], u.get('tomas', 1), u['estado']))
     
     def clear_search(self):
         """Limpia los campos de búsqueda"""
@@ -268,6 +301,7 @@ class UserManagementWindow:
         self.search_name_var.set("")
         self.filter_sesion_var.set("Todas")
         self.filter_status_var.set("Todos")
+        self.filter_year_debt_var.set("Todos")
         self.refresh_users_list()
 
     def on_user_select(self, event):
@@ -284,6 +318,7 @@ class UserManagementWindow:
         # Habilitar botones
         self.save_btn.config(state='normal')
         self.history_btn.config(state='normal')
+        self.obs_btn.config(state='normal')
         self.delete_btn.config(state='normal')
         self.print_debt_btn.config(state='normal')
     
@@ -303,6 +338,8 @@ class UserManagementWindow:
             self.user_vacas_var.set(user.get('vacas', 0))
             self.user_inquilinos_var.set(user.get('inquilinos', 0))
             self.user_tomas_var.set(user.get('tomas', 1))
+            self.user_hidrantes_var.set(user.get('hidrantes', 0))
+            self.user_number_var.set(user.get('numero_usuario') or str(user['id']))
             self.user_fecha_alta_var.set(user.get('fecha_alta') or user.get('fecha_registro') or "")
             self.user_fecha_baja_var.set(user.get('fecha_baja') or "")
 
@@ -324,7 +361,9 @@ class UserManagementWindow:
                 'estado': self.user_status_var.get(),
                 'vacas': self.user_vacas_var.get(),
                 'inquilinos': self.user_inquilinos_var.get(),
-                'tomas': self.user_tomas_var.get()
+                'tomas': self.user_tomas_var.get(),
+                'hidrantes': self.user_hidrantes_var.get(),
+                'numero_usuario': self.user_number_var.get().strip()
             }
             
             if not datos['nombre']:
@@ -360,9 +399,9 @@ class UserManagementWindow:
             return
             
         try:
-            # Importar aquí para evitar referencias circulares si las hubiera
-            from .payment_history import PaymentHistoryWindow
-            PaymentHistoryWindow(self.root, user_id)
+            PaymentHistoryWindow(self.root, int(user_id))
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al abrir historial: {str(e)}")
         except ImportError:
             # Fallback si no existe el módulo aún
             messagebox.showinfo("Historial", f"Historial de pagos para usuario {user_id}\n(Módulo en desarrollo)")
@@ -382,7 +421,7 @@ class UserManagementWindow:
                     messagebox.showinfo("Éxito", "Usuario eliminado correctamente")
                     self.clear_search() # Limpiar selección
                 else:
-                    messagebox.showerror("Error", "No se pudo eliminar el usuario")
+                    messagebox.showerror("Error", "No se puede eliminar el usuario. \nPosiblemente tiene pagos registrados o ocurrió un error.")
             except Exception as e:
                 messagebox.showerror("Error", f"Error al eliminar: {str(e)}")
 
@@ -403,13 +442,59 @@ class UserManagementWindow:
         except Exception as e:
             messagebox.showerror("Error", f"Error al generar reporte: {str(e)}")
 
+    def show_observations(self):
+        """Muestra y edita las observaciones del usuario"""
+        user_id = self.user_id_var.get()
+        if not user_id:
+            return
+            
+        try:
+            db = get_db_manager()
+            user = db.buscar_usuario_por_id(int(user_id))
+            if not user:
+                return
+                
+            obs_window = tk.Toplevel(self.root)
+            obs_window.title(f"Observaciones - {user['nombre']}")
+            obs_window.geometry("500x400")
+            
+            tk.Label(obs_window, text="Observaciones:", font=('Arial', 10, 'bold')).pack(anchor='w', padx=10, pady=5)
+            
+            text_area = tk.Text(obs_window, font=('Arial', 10), height=15)
+            text_area.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Cargar observaciones existentes
+            if user.get('observaciones'):
+                text_area.insert('1.0', user['observaciones'])
+                
+            def save_obs():
+                new_obs = text_area.get('1.0', 'end-1c')
+                try:
+                    if db.actualizar_usuario(int(user_id), observaciones=new_obs):
+                        messagebox.showinfo("Éxito", "Observaciones guardadas correctamente")
+                        self.load_user_details(int(user_id)) # Recargar en ventana principal
+                        obs_window.destroy()
+                    else:
+                        messagebox.showerror("Error", "No se pudieron guardar las observaciones")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Error al guardar: {e}")
+            
+            btn_frame = tk.Frame(obs_window)
+            btn_frame.pack(fill=tk.X, padx=10, pady=10)
+            
+            tk.Button(btn_frame, text="Guardar", command=save_obs, bg='#27ae60', fg='white').pack(side=tk.LEFT, padx=5)
+            tk.Button(btn_frame, text="Cerrar", command=obs_window.destroy, bg='#7f8c8d', fg='white').pack(side=tk.RIGHT, padx=5)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al abrir observaciones: {e}")
+
 
 class NewUserDialog:
     def __init__(self, parent, callback):
         self.callback = callback
         self.top = tk.Toplevel(parent)
         self.top.title("Nuevo Usuario")
-        self.top.geometry("400x600")
+        self.top.geometry("550x700")
         
         self.name_var = tk.StringVar()
         self.address_var = tk.StringVar()
@@ -419,39 +504,165 @@ class NewUserDialog:
         self.vacas_var = tk.IntVar(value=0)
         self.inquilinos_var = tk.IntVar(value=0)
         self.tomas_var = tk.IntVar(value=1)
+        self.hidrantes_var = tk.IntVar(value=0)
+        self.numero_usuario_var = tk.StringVar()
+        
+        # Smart ID vars
+        self.parent_user_var = tk.StringVar()
+        self.generated_id_label = tk.StringVar(value="ID Sugerido: -")
         
         self.setup_ui()
         
     def setup_ui(self):
-        frame = tk.Frame(self.top, padx=20, pady=20)
-        frame.pack(fill=tk.BOTH, expand=True)
+        # Frame principal con Canvas y Scrollbar para asegurar que todo quepa
+        main_canvas = tk.Canvas(self.top)
+        scrollbar = ttk.Scrollbar(self.top, orient="vertical", command=main_canvas.yview)
+        scrollable_frame = tk.Frame(main_canvas, padx=20, pady=20)
         
-        tk.Label(frame, text="Nombre (*):").pack(anchor='w', pady=(0, 5))
-        tk.Entry(frame, textvariable=self.name_var).pack(fill=tk.X, pady=(0, 10))
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+        )
         
-        tk.Label(frame, text="Dirección (*):").pack(anchor='w', pady=(0, 5))
-        tk.Entry(frame, textvariable=self.address_var).pack(fill=tk.X, pady=(0, 10))
+        main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=500) # Ajustar ancho
+        main_canvas.configure(yscrollcommand=scrollbar.set)
         
-        tk.Label(frame, text="Teléfono:").pack(anchor='w', pady=(0, 5))
-        tk.Entry(frame, textvariable=self.phone_var).pack(fill=tk.X, pady=(0, 10))
+        main_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
         
-        tk.Label(frame, text="Email:").pack(anchor='w', pady=(0, 5))
-        tk.Entry(frame, textvariable=self.email_var).pack(fill=tk.X, pady=(0, 10))
+        frame = scrollable_frame
         
-        tk.Label(frame, text="Sesión (*):").pack(anchor='w', pady=(0, 5))
-        ttk.Combobox(frame, textvariable=self.session_var, values=["1", "2", "3"], state="readonly").pack(fill=tk.X, pady=(0, 10))
+        # Fila 1: Nombre
+        tk.Label(frame, text="Nombre (*):").grid(row=0, column=0, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.name_var, width=50).grid(row=1, column=0, columnspan=2, sticky='ew', pady=(0, 10))
         
-        tk.Label(frame, text="Vacas:").pack(anchor='w', pady=(0, 5))
-        tk.Entry(frame, textvariable=self.vacas_var).pack(fill=tk.X, pady=(0, 10))
+        # Fila 2: No. Usuario, Sesión, y Usuario Padre
         
-        tk.Label(frame, text="Inquilinos:").pack(anchor='w', pady=(0, 5))
-        tk.Entry(frame, textvariable=self.inquilinos_var).pack(fill=tk.X, pady=(0, 10))
+        # Panel de Usuario Padre (Smart ID)
+        parent_frame = tk.LabelFrame(frame, text="Generar ID Automático (Usuario Padre)")
+        parent_frame.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(0, 10))
         
-        tk.Label(frame, text="Tomas:").pack(anchor='w', pady=(0, 5))
-        tk.Entry(frame, textvariable=self.tomas_var).pack(fill=tk.X, pady=(0, 20))
+        tk.Label(parent_frame, text="Buscar Padre (Nombre/ID):").pack(side=tk.LEFT, padx=5)
+        self.parent_search_entry = tk.Entry(parent_frame, width=20)
+        self.parent_search_entry.pack(side=tk.LEFT, padx=5)
         
-        tk.Button(frame, text="Crear Usuario", command=self.create_user, bg='#27ae60', fg='white').pack(fill=tk.X, pady=(0, 5))
-        tk.Button(frame, text="Cancelar", command=self.top.destroy, bg='#e74c3c', fg='white').pack(fill=tk.X)
+        tk.Button(parent_frame, text="Buscar", command=self.search_parent, bg='#3498db', fg='white').pack(side=tk.LEFT, padx=5)
+        
+        self.parent_combo = ttk.Combobox(parent_frame, textvariable=self.parent_user_var, state="readonly", width=30)
+        self.parent_combo.pack(side=tk.LEFT, padx=5)
+        self.parent_combo.bind("<<ComboboxSelected>>", self.on_parent_select)
+        
+        tk.Label(parent_frame, textvariable=self.generated_id_label, font=('Arial', 10, 'bold'), fg='#27ae60').pack(side=tk.LEFT, padx=10)
+
+        # Campos Manuales
+        row_manual = tk.Frame(frame)
+        row_manual.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(0, 10))
+        
+        tk.Label(row_manual, text="No. Usuario (Manual/Auto):").pack(side=tk.LEFT)
+        tk.Entry(row_manual, textvariable=self.numero_usuario_var, width=15).pack(side=tk.LEFT, padx=(5, 20))
+        
+        tk.Label(row_manual, text="Sesión (*):").pack(side=tk.LEFT)
+        ttk.Combobox(row_manual, textvariable=self.session_var, values=["1", "2", "3"], state="readonly", width=5).pack(side=tk.LEFT, padx=5)
+
+        # Ajustar filas siguientes (offset)
+        # Fila 3 original era direccion (row 4)
+        tk.Label(frame, text="Dirección (*):").grid(row=4, column=0, sticky='w', pady=(0, 5))
+
+        tk.Entry(frame, textvariable=self.address_var).grid(row=5, column=0, columnspan=2, sticky='ew', pady=(0, 10))
+        
+        # Fila 4: Teléfono y Email
+        tk.Label(frame, text="Teléfono:").grid(row=6, column=0, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.phone_var).grid(row=7, column=0, sticky='ew', padx=(0, 10), pady=(0, 10))
+        
+        tk.Label(frame, text="Email:").grid(row=6, column=1, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.email_var).grid(row=7, column=1, sticky='ew', pady=(0, 10))
+        
+        # Fila 5: Configuración (Vacas, Inquilinos)
+        tk.Label(frame, text="Vacas:").grid(row=8, column=0, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.vacas_var).grid(row=9, column=0, sticky='ew', padx=(0, 10), pady=(0, 10))
+        
+        tk.Label(frame, text="Inquilinos:").grid(row=8, column=1, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.inquilinos_var).grid(row=9, column=1, sticky='ew', pady=(0, 10))
+        
+        # Fila 6: Configuración (Tomas, Hidrantes)
+        tk.Label(frame, text="Tomas:").grid(row=10, column=0, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.tomas_var).grid(row=11, column=0, sticky='ew', padx=(0, 10), pady=(0, 10))
+        
+        tk.Label(frame, text="Hidrantes:").grid(row=10, column=1, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.hidrantes_var).grid(row=11, column=1, sticky='ew', pady=(0, 20))
+        
+        # Botones
+        btn_frame = tk.Frame(frame)
+        btn_frame.grid(row=12, column=0, columnspan=2, sticky='ew', pady=20)
+        
+        tk.Button(btn_frame, text="Crear Usuario", command=self.create_user, bg='#27ae60', fg='white', width=20).pack(side=tk.LEFT, padx=10, expand=True)
+        tk.Button(btn_frame, text="Cancelar", command=self.top.destroy, bg='#e74c3c', fg='white', width=20).pack(side=tk.RIGHT, padx=10, expand=True)
+        
+        frame.columnconfigure(0, weight=1)
+        frame.columnconfigure(1, weight=1)
+
+    def search_parent(self):
+        """Busca usuarios padre potenciales"""
+        term = self.parent_search_entry.get().strip()
+        if not term:
+            return
+            
+        db = get_db_manager()
+        users = db.buscar_usuarios_por_nombre(term)
+        
+        # También intentar por ID
+        if term.isdigit():
+             u = db.buscar_usuario_por_id(int(term))
+             if u: users.append(u)
+        
+        # Formatear para combobox: "ID - Nombre (No.Usuario)"
+        self.parent_map = {f"{u['id']} - {u['nombre']} ({u.get('numero_usuario', '-')})": u for u in users}
+        self.parent_combo['values'] = list(self.parent_map.keys())
+        if self.parent_map:
+            self.parent_combo.current(0)
+            self.on_parent_select(None)
+        else:
+            messagebox.showinfo("Búsqueda", "No se encontraron usuarios")
+
+    def on_parent_select(self, event):
+        """Genera el ID basado en el padre seleccionado"""
+        selected = self.parent_user_var.get()
+        if not selected or not hasattr(self, 'parent_map'):
+            return
+            
+        parent = self.parent_map[selected]
+        # Lógica de generación:
+        # Si padre es "3", hijos son "3A", "3B", etc.
+        # Si padre es "3A", hijos podrían ser "3A-1" o seguir la secuencia del grupo "3".
+        # Asumiremos la logica simple descrita: ID Padre + Letra
+        
+        base_id = parent.get('numero_usuario') or str(parent['id'])
+        
+        # Limpiar base_id de letras existentes al final si queremos anidar, 
+        # pero para este caso simple, intentamos appendear letra.
+        
+        db = get_db_manager()
+        # Buscar hermanos existentes (que empiecen con el base_id)
+        # Esto es un poco complejo sin una query especifica, pero podemos iterar letras
+        
+        import string
+        letters = string.ascii_uppercase # A-Z
+        
+        candidate = ""
+        for char in letters:
+            candidate = f"{base_id}{char}"
+            # Verificar si existe
+            exists = db.buscar_usuarios_por_numero(candidate)
+            if not exists:
+                break
+        
+        self.numero_usuario_var.set(candidate)
+        self.generated_id_label.set(f"ID Sugerido: {candidate}")
+        
+        # Auto-fill address usually logic matches parent address? Optional improvement.
+        if parent.get('direccion'):
+            self.address_var.set(parent['direccion'])
+
     
     def create_user(self):
         nombre = self.name_var.get().strip()
@@ -475,7 +686,9 @@ class NewUserDialog:
                 sesion=int(sesion),
                 vacas=self.vacas_var.get(),
                 inquilinos=self.inquilinos_var.get(),
-                tomas=self.tomas_var.get()
+                tomas=self.tomas_var.get(),
+                hidrantes=self.hidrantes_var.get(),
+                numero_usuario=self.numero_usuario_var.get().strip() or None
             ):
                 messagebox.showinfo("Éxito", "Usuario creado correctamente")
                 self.callback()

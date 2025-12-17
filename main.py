@@ -83,6 +83,7 @@ class MainApplication:
         menubar.add_cascade(label="⚙️ Módulos", menu=modules_menu)
         modules_menu.add_command(label="👥 Gestión de Usuarios", command=self.open_user_management)
         modules_menu.add_command(label="💰 Registro de Pagos", command=self.open_payment_registration)
+
         modules_menu.add_command(label="⚙️ Configuración del Sistema", command=self.open_configuration)
         
         # Menú Ayuda
@@ -287,6 +288,7 @@ class MainApplication:
             0, 0
         )
         
+
         # Módulo 2: Registro de Pagos (mejorado)
         self.create_improved_module_button(
             buttons_frame,
@@ -487,13 +489,15 @@ class MainApplication:
         except Exception as e:
             messagebox.showerror("Error", f"Error al abrir gestión de usuarios: {str(e)}")
     
+
+    
     def open_payment_registration(self):
         """Abre el módulo de registro de pagos"""
         try:
             PaymentRegistrationWindow(self.root)
         except Exception as e:
             messagebox.showerror("Error", f"Error al abrir registro de pagos: {str(e)}")
-    
+
     def open_configuration(self):
         """Abre el módulo de configuración"""
         try:
@@ -538,6 +542,7 @@ class MainApplication:
             "2. En 'Gestión de Usuarios' puede agregar, editar y eliminar usuarios.\n"
             "3. En 'Registro de Pagos' puede cobrar mensualidades y generar recibos.\n"
             "4. En 'Configuración' puede ajustar las tarifas del sistema.\n\n"
+
             "Para más ayuda, contacte al administrador del sistema."
         )
 
