@@ -9,7 +9,6 @@ from tkinter import ttk, messagebox, simpledialog
 from .database import get_db_manager
 import re
 import os
-from .receipt_generator import ReceiptGenerator
 from .payment_history import PaymentHistoryWindow
 
 class UserManagementWindow:
@@ -56,6 +55,12 @@ class UserManagementWindow:
         self.user_number_var = tk.StringVar()
         self.user_fecha_alta_var = tk.StringVar()
         self.user_fecha_baja_var = tk.StringVar()
+        self.user_seccionar_var = tk.DoubleVar(value=0)
+        self.user_t_pozo_var = tk.DoubleVar(value=0)
+        self.user_conagua_var = tk.DoubleVar(value=0)
+        self.user_drenaje_var = tk.DoubleVar(value=0)
+        self.user_obs_anterior_var = tk.StringVar() # For display maybe?
+
         
         # Filtros
         self.filter_sesion_var = tk.StringVar(value="Todas")
@@ -99,6 +104,11 @@ class UserManagementWindow:
         actions_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
         
         tk.Button(actions_frame, text="Agregar Nuevo Usuario", command=self.open_new_user_dialog, bg='#27ae60', fg='white', font=('Arial', 12, 'bold'), height=2, width=20).pack(side=tk.LEFT, padx=10, pady=5)
+        
+        # Botón Excel
+        from .excel_manager import ExcelManager
+        tk.Button(actions_frame, text="Abrir Excel Base Datos", command=ExcelManager.abrir_excel_db, bg='#217346', fg='white', font=('Arial', 12, 'bold'), height=2, width=20).pack(side=tk.LEFT, padx=10, pady=5)
+        
         tk.Button(actions_frame, text="Volver al Menú", command=self.on_close, bg='#7f8c8d', fg='white', font=('Arial', 12, 'bold'), height=2, width=15).pack(side=tk.LEFT, padx=10, pady=5)
 
         # Búsqueda y Filtros
@@ -193,6 +203,10 @@ class UserManagementWindow:
             ("Inquilinos:", self.user_inquilinos_var, False),
             ("Tomas:", self.user_tomas_var, False),
             ("Hidrantes:", self.user_hidrantes_var, False),
+            ("Seccionar ($):", self.user_seccionar_var, False),
+            ("T. Pozo ($):", self.user_t_pozo_var, False),
+            ("Conagua ($):", self.user_conagua_var, False),
+            ("Drenaje ($):", self.user_drenaje_var, False),
             ("Fecha Alta:", self.user_fecha_alta_var, True),
             ("Fecha Baja:", self.user_fecha_baja_var, True)
         ]
@@ -231,9 +245,6 @@ class UserManagementWindow:
 
         self.delete_btn = tk.Button(btn_frame, text="Eliminar Usuario", command=self.delete_user, bg='#c0392b', fg='white', state='disabled')
         self.delete_btn.pack(fill=tk.X, pady=5)
-
-        self.print_debt_btn = tk.Button(btn_frame, text="Imprimir Estado de Cuenta", command=self.print_debt_summary, bg='#d35400', fg='white', state='disabled')
-        self.print_debt_btn.pack(fill=tk.X, pady=5)
 
     def refresh_users_list(self):
         """Actualiza la lista de usuarios"""
@@ -290,7 +301,35 @@ class UserManagementWindow:
             # Intersección
             filtered_users = [u for u in filtered_users if u['id'] in deudores_ids]
 
-        
+        # Ordenar por numero_usuario usando orden natural (e.g. 31, 31A, 32)
+        import re
+        def get_sort_key(u):
+            val = str(u.get('numero_usuario', '') or '').strip()
+            # Extraer parte numérica y parte alfabética
+            # "31A" -> (31, "A")
+            # "31"  -> (31, "")
+            # "1.0" -> (1, "")
+            # "*"   -> (float('inf'), "*")  paramos al final
+            
+            if not val or val == '*':
+                return (float('inf'), val)
+                
+            match = re.match(r"([0-9.]+)([a-zA-Z]*)", val)
+            if match:
+                num_part = match.group(1)
+                alpha_part = match.group(2)
+                try:
+                    num_val = float(num_part)
+                except ValueError:
+                    num_val = float('inf')
+                return (num_val, alpha_part)
+            else:
+                # Si no empieza con numero, va al final
+                return (float('inf'), val)
+
+        filtered_users.sort(key=get_sort_key)
+
+        # Llenar Treeview
         for u in filtered_users:
             numero_usuario = u.get('numero_usuario') or str(u['id'])
             self.users_tree.insert('', 'end', values=(u['id'], numero_usuario, u['nombre'], u['sesion'], u.get('tomas', 1), u['estado']))
@@ -320,7 +359,6 @@ class UserManagementWindow:
         self.history_btn.config(state='normal')
         self.obs_btn.config(state='normal')
         self.delete_btn.config(state='normal')
-        self.print_debt_btn.config(state='normal')
     
     def load_user_details(self, user_id):
         """Carga los detalles del usuario"""
@@ -342,6 +380,11 @@ class UserManagementWindow:
             self.user_number_var.set(user.get('numero_usuario') or str(user['id']))
             self.user_fecha_alta_var.set(user.get('fecha_alta') or user.get('fecha_registro') or "")
             self.user_fecha_baja_var.set(user.get('fecha_baja') or "")
+            self.user_seccionar_var.set(user.get('seccionar', 0))
+            self.user_t_pozo_var.set(user.get('t_pozo', 0))
+            self.user_conagua_var.set(user.get('conagua', 0))
+            self.user_drenaje_var.set(user.get('drenaje', 0))
+
 
     def save_user_changes(self):
         """Guarda los cambios del usuario"""
@@ -363,7 +406,11 @@ class UserManagementWindow:
                 'inquilinos': self.user_inquilinos_var.get(),
                 'tomas': self.user_tomas_var.get(),
                 'hidrantes': self.user_hidrantes_var.get(),
-                'numero_usuario': self.user_number_var.get().strip()
+                'numero_usuario': self.user_number_var.get().strip(),
+                'seccionar': self.user_seccionar_var.get(),
+                't_pozo': self.user_t_pozo_var.get(),
+                'conagua': self.user_conagua_var.get(),
+                'drenaje': self.user_drenaje_var.get()
             }
             
             if not datos['nombre']:
@@ -382,6 +429,13 @@ class UserManagementWindow:
                 del datos['estado']
             
             if db.actualizar_usuario(int(user_id), **datos):
+                # Sincronizar con Excel
+                try:
+                    from .excel_manager import ExcelManager
+                    ExcelManager.actualizar_usuario_en_db_excel(datos)
+                except Exception as ex:
+                    print(f"Error al sincronizar con Excel: {ex}")
+                
                 messagebox.showinfo("Éxito", "Usuario actualizado correctamente")
                 self.refresh_users_list()
                 # Recargar detalles para ver fechas actualizadas si las hubo
@@ -424,23 +478,6 @@ class UserManagementWindow:
                     messagebox.showerror("Error", "No se puede eliminar el usuario. \nPosiblemente tiene pagos registrados o ocurrió un error.")
             except Exception as e:
                 messagebox.showerror("Error", f"Error al eliminar: {str(e)}")
-
-    def print_debt_summary(self):
-        """Imprime el estado de cuenta del usuario"""
-        user_id = self.user_id_var.get()
-        if not user_id:
-            return
-            
-        try:
-            generator = ReceiptGenerator()
-            pdf_path = generator.generate_account_statement(int(user_id))
-            
-            if pdf_path and os.path.exists(pdf_path):
-                os.startfile(pdf_path)
-            else:
-                messagebox.showerror("Error", "No se pudo generar el estado de cuenta")
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al generar reporte: {str(e)}")
 
     def show_observations(self):
         """Muestra y edita las observaciones del usuario"""
@@ -505,6 +542,10 @@ class NewUserDialog:
         self.inquilinos_var = tk.IntVar(value=0)
         self.tomas_var = tk.IntVar(value=1)
         self.hidrantes_var = tk.IntVar(value=0)
+        self.seccionar_var = tk.DoubleVar(value=0)
+        self.t_pozo_var = tk.DoubleVar(value=0)
+        self.conagua_var = tk.DoubleVar(value=0)
+        self.drenaje_var = tk.DoubleVar(value=0)
         self.numero_usuario_var = tk.StringVar()
         
         # Smart ID vars
@@ -591,9 +632,23 @@ class NewUserDialog:
         tk.Label(frame, text="Hidrantes:").grid(row=10, column=1, sticky='w', pady=(0, 5))
         tk.Entry(frame, textvariable=self.hidrantes_var).grid(row=11, column=1, sticky='ew', pady=(0, 20))
         
+        # Fila 7: Nuevos cargos
+        tk.Label(frame, text="Seccionar ($):").grid(row=12, column=0, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.seccionar_var).grid(row=13, column=0, sticky='ew', padx=(0, 10), pady=(0, 10))
+        
+        tk.Label(frame, text="T. Pozo ($):").grid(row=12, column=1, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.t_pozo_var).grid(row=13, column=1, sticky='ew', pady=(0, 10))
+
+        tk.Label(frame, text="Conagua ($):").grid(row=14, column=0, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.conagua_var).grid(row=15, column=0, sticky='ew', padx=(0, 10), pady=(0, 10))
+        
+        tk.Label(frame, text="Drenaje ($):").grid(row=14, column=1, sticky='w', pady=(0, 5))
+        tk.Entry(frame, textvariable=self.drenaje_var).grid(row=15, column=1, sticky='ew', pady=(0, 10))
+        
         # Botones
         btn_frame = tk.Frame(frame)
-        btn_frame.grid(row=12, column=0, columnspan=2, sticky='ew', pady=20)
+        btn_frame.grid(row=16, column=0, columnspan=2, sticky='ew', pady=20)
+
         
         tk.Button(btn_frame, text="Crear Usuario", command=self.create_user, bg='#27ae60', fg='white', width=20).pack(side=tk.LEFT, padx=10, expand=True)
         tk.Button(btn_frame, text="Cancelar", command=self.top.destroy, bg='#e74c3c', fg='white', width=20).pack(side=tk.RIGHT, padx=10, expand=True)
@@ -688,8 +743,33 @@ class NewUserDialog:
                 inquilinos=self.inquilinos_var.get(),
                 tomas=self.tomas_var.get(),
                 hidrantes=self.hidrantes_var.get(),
+                seccionar=self.seccionar_var.get(),
+                t_pozo=self.t_pozo_var.get(),
+                conagua=self.conagua_var.get(),
+                drenaje=self.drenaje_var.get(),
                 numero_usuario=self.numero_usuario_var.get().strip() or None
             ):
+                # Sincronizar con Excel
+                try:
+                    from .excel_manager import ExcelManager
+                    datos_excel = {
+                        'nombre': nombre,
+                        'direccion': self.address_var.get().strip(),
+                        'sesion': int(sesion),
+                        'vacas': self.vacas_var.get(),
+                        'inquilinos': self.inquilinos_var.get(),
+                        'tomas': self.tomas_var.get(),
+                        'hidrantes': self.hidrantes_var.get(),
+                        'seccionar': self.seccionar_var.get(),
+                        't_pozo': self.t_pozo_var.get(),
+                        'conagua': self.conagua_var.get(),
+                        'drenaje': self.drenaje_var.get(),
+                        'numero_usuario': self.numero_usuario_var.get().strip()
+                    }
+                    ExcelManager.actualizar_usuario_en_db_excel(datos_excel)
+                except Exception as ex:
+                    print(f"Error al sincronizar con Excel: {ex}")
+
                 messagebox.showinfo("Éxito", "Usuario creado correctamente")
                 self.callback()
                 self.top.destroy()

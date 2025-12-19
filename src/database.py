@@ -41,9 +41,14 @@ class DatabaseManager:
                     inquilinos INTEGER DEFAULT 0,
                     tomas INTEGER DEFAULT 1,
                     hidrantes INTEGER DEFAULT 0,
+                    seccionar INTEGER DEFAULT 0,
+                    t_pozo INTEGER DEFAULT 0,
+                    conagua INTEGER DEFAULT 0,
+                    drenaje INTEGER DEFAULT 0,
                     estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado', 'Baja', 'Suspendida')),
                     numero_usuario TEXT,
                     observaciones TEXT,
+                    observaciones_anterior TEXT,
                     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     fecha_alta TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     fecha_baja TIMESTAMP
@@ -149,6 +154,11 @@ class DatabaseManager:
             if 'fecha_alta' not in columns: missing_columns.append('fecha_alta')
             if 'numero_usuario' not in columns: missing_columns.append('numero_usuario')
             if 'observaciones' not in columns: missing_columns.append('observaciones')
+            if 'seccionar' not in columns: missing_columns.append('seccionar')
+            if 't_pozo' not in columns: missing_columns.append('t_pozo')
+            if 'conagua' not in columns: missing_columns.append('conagua')
+            if 'drenaje' not in columns: missing_columns.append('drenaje')
+            if 'observaciones_anterior' not in columns: missing_columns.append('observaciones_anterior')
             
             # También necesitamos migrar si el check de estado es antiguo, pero eso es difícil de detectar con PRAGMA.
             # Asumiremos que si faltan columnas o si queremos asegurar la estructura, hacemos la migración.
@@ -175,9 +185,14 @@ class DatabaseManager:
                         inquilinos INTEGER DEFAULT 0,
                         tomas INTEGER DEFAULT 1,
                         hidrantes INTEGER DEFAULT 0,
+                        seccionar INTEGER DEFAULT 0,
+                        t_pozo INTEGER DEFAULT 0,
+                        conagua INTEGER DEFAULT 0,
+                        drenaje INTEGER DEFAULT 0,
                         estado TEXT DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Cancelado', 'Baja', 'Suspendida')),
                         numero_usuario TEXT,
                         observaciones TEXT,
+                        observaciones_anterior TEXT,
                         fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         fecha_alta TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         fecha_baja TIMESTAMP
@@ -233,6 +248,14 @@ class DatabaseManager:
                 if 'observaciones' in columns:
                     cols_to_copy.append('observaciones')
                     cols_dest.append('observaciones')
+
+                if 'seccionar' in columns: cols_to_copy.append('seccionar'); cols_dest.append('seccionar')
+                if 't_pozo' in columns: cols_to_copy.append('t_pozo'); cols_dest.append('t_pozo')
+                if 'conagua' in columns: cols_to_copy.append('conagua'); cols_dest.append('conagua')
+                if 'drenaje' in columns: cols_to_copy.append('drenaje'); cols_dest.append('drenaje')
+                if 'observaciones_anterior' in columns: 
+                    cols_to_copy.append('observaciones_anterior')
+                    cols_dest.append('observaciones_anterior')
 
                 cols_src_str = ", ".join(cols_to_copy)
                 cols_dest_str = ", ".join(cols_dest)
@@ -312,23 +335,11 @@ class DatabaseManager:
     
     def crear_usuario(self, nombre: str, sesion: int, direccion: str = "", 
                      telefono: str = "", email: str = "", vacas: int = 0, inquilinos: int = 0, 
-                     tomas: int = 1, hidrantes: int = 0, numero_usuario: str = None, estado: str = "Activo") -> bool:
+                     tomas: int = 1, hidrantes: int = 0, numero_usuario: str = None, 
+                     estado: str = "Activo", seccionar: float = 0, t_pozo: float = 0, 
+                     conagua: float = 0, drenaje: float = 0) -> bool:
         """
         Crea un nuevo usuario
-        
-        Args:
-            nombre: Nombre del usuario
-            sesion: Número de sesión (1, 2, 3)
-            direccion: Dirección
-            telefono: Teléfono
-            email: Email
-            vacas: Número de vacas
-            inquilinos: Número de inquilinos
-            tomas: Número de tomas
-            estado: Estado inicial
-            
-        Returns:
-            bool: True si se creó exitosamente
         """
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -349,9 +360,9 @@ class DatabaseManager:
                 numero_usuario = str(nuevo_id)
                 
             cursor.execute('''
-                INSERT INTO usuarios (id, nombre, sesion, direccion, telefono, email, vacas, inquilinos, tomas, hidrantes, numero_usuario, estado)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (nuevo_id, nombre, sesion, direccion, telefono, email, vacas, inquilinos, tomas, hidrantes, numero_usuario, estado))
+                INSERT INTO usuarios (id, nombre, sesion, direccion, telefono, email, vacas, inquilinos, tomas, hidrantes, numero_usuario, estado, seccionar, t_pozo, conagua, drenaje)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (nuevo_id, nombre, sesion, direccion, telefono, email, vacas, inquilinos, tomas, hidrantes, numero_usuario, estado, seccionar, t_pozo, conagua, drenaje))
             conn.commit()
             
             # Registrar en historial

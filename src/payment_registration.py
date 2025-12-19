@@ -8,8 +8,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, timedelta
 import calendar
-from .database import get_db_manager
-from .receipt_generator import ReceiptGenerator
+
+from .database import DatabaseManager
 from .excel_manager import ExcelManager
 import os
 
@@ -24,15 +24,13 @@ class PaymentRegistrationWindow:
         self.root.geometry("1200x700")
         self.root.state('zoomed') if hasattr(self.root, 'state') else None
         
-        self.db = get_db_manager()
-        self.receipt_gen = ReceiptGenerator()
+        self.db = DatabaseManager()
         
         # Variables de estado
         self.current_user = None
         self.selected_months = set()
         self.cart_items = []
         self.total_amount = 0.0
-        self.last_receipt_path = None
         
         # Variables de configuración
         self.load_config_values()
@@ -71,6 +69,16 @@ class PaymentRegistrationWindow:
             fg='white',
             font=('Arial', 10, 'bold')
         ).pack(side=tk.RIGHT, padx=20)
+
+        # Botón Excel en Header
+        tk.Button(
+            header_frame,
+            text="Abrir Excel BD",
+            command=ExcelManager.abrir_excel_db,
+            bg='#217346',
+            fg='white',
+            font=('Arial', 10, 'bold')
+        ).pack(side=tk.RIGHT, padx=5)
 
         # Contenedor principal
         main_container = tk.Frame(self.root)
@@ -225,13 +233,6 @@ class PaymentRegistrationWindow:
         self.btn_pagar = tk.Button(frame, text="REGISTRAR PAGO", command=self.process_payment,
                                  bg='#2ecc71', fg='white', font=('Arial', 14, 'bold'), state='disabled')
         self.btn_pagar.pack(fill=tk.X, padx=10, pady=10)
-
-        # Botón Abrir Último Recibo
-        self.btn_open_receipt = tk.Button(frame, text="Abrir Último Recibo (Excel)", 
-                                        command=self.open_last_receipt,
-                                        bg='#3498db', fg='white', font=('Arial', 10, 'bold'), 
-                                        state='disabled')
-        self.btn_open_receipt.pack(fill=tk.X, padx=10, pady=(0, 10))
 
     # === LÓGICA ===
 
@@ -506,49 +507,22 @@ class PaymentRegistrationWindow:
                 )
                 
                 if pago_id:
-                    messagebox.showinfo("Éxito", "Pago registrado correctamente")
-                    
-                    # Generar Recibo Excel
+                    # Sincronizar Pagos con Excel (BASE DE DATOS)
                     try:
-                        # Preparar datos para el Excel
-                        datos_recibo = {
-                            'folio': pago_id,
-                            'fecha': datetime.now().strftime("%d/%m/%Y"),
-                            'id_usuario': self.current_user['id'],
-                            'nombre': self.current_user['nombre'],
-                            'direccion': self.current_user['direccion'],
-                            'tomas': self.current_user.get('tomas', 1),
-                            'total': self.total_amount,
-                            'conceptos': []
-                        }
-                        
-                        # Formatear conceptos
+                        u_num = self.current_user.get('numero_usuario') or str(self.current_user['id'])
                         for item in self.cart_items:
-                            importe = item['precio'] * item.get('cantidad', 1)
-                            desc = item['concepto']
-                            # Agregar mes a la descripción si corresponde (igual que en el Treeview)
-                            if 'mes' in item and 'Recargo' not in desc:
-                                months = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-                                if 1 <= item['mes'] <= 12:
-                                    desc += f" {months[item['mes']]}"
-                            
-                            datos_recibo['conceptos'].append({
-                                'descripcion': desc,
-                                'importe': importe
-                            })
-                            
-                        # Generar y guardar ruta
-                        ruta_excel = ExcelManager.generar_recibo(datos_recibo)
-                        if ruta_excel and os.path.exists(ruta_excel):
-                            self.last_receipt_path = ruta_excel
-                            self.btn_open_receipt.config(state='normal')
-                            
-                            # Preguntar si abrir
-                            if messagebox.askyesno("Recibo Generado", "Pago registrado.\n¿Desea abrir el recibo en Excel para imprimir?"):
-                                os.startfile(ruta_excel)
-                        
-                    except Exception as e:
-                        messagebox.showerror("Error Recibo Excel", f"Pago registrado pero error al generar Excel: {e}")
+                            if 'mes' in item and 'anio' in item and 'Recargo' not in item['concepto']:
+                                # Solo registramos mensualidades base en la cuadrícula de meses del excel
+                                ExcelManager.registrar_pago_en_db_excel(
+                                    u_num, 
+                                    item['mes'], 
+                                    item['anio'], 
+                                    item['precio']
+                                )
+                    except Exception as ex:
+                        print(f"Error al sincronizar pago con Excel: {ex}")
+
+                    messagebox.showinfo("Éxito", "Pago registrado correctamente")
                     
                     # Resetear
                     self.reset_selections()
@@ -603,38 +577,16 @@ class PaymentRegistrationWindow:
                     )
                     
                     if pago_id:
+                        # Sincronizar Multa con Excel si es necesario (Por ahora solo registramos en DB)
+                        pass
+                        
                         messagebox.showinfo("Éxito", "Multa registrada correctamente")
                         dialog.destroy()
-                        
-                        # Generar Recibo Especial
-                        try:
-                            # Usamos un método específico para este recibo si es necesario, 
-                            # o el genérico si el diseño lo permite.
-                            # El usuario pidió "ese recibo lo haras tu, que se vea bien".
-                            # Vamos a añadir un método generate_waste_receipt en ReceiptGenerator
-                            pdf_path = self.receipt_gen.generate_waste_receipt(pago_id)
-                            if pdf_path and os.path.exists(pdf_path):
-                                os.startfile(pdf_path) if os.name == 'nt' else None
-                        except Exception as e:
-                            messagebox.showerror("Error Recibo", f"Error al generar recibo: {e}")
                             
                         self.update_user_display()
             except ValueError:
                 messagebox.showerror("Error", "Monto inválido")
         
-        tk.Button(dialog, text="Registrar y Generar Recibo", command=process, bg='#e74c3c', fg='white').pack(pady=20)
-
-    def open_last_receipt(self):
-        """Abre el último recibo generado"""
-        if self.last_receipt_path and os.path.exists(self.last_receipt_path):
-            try:
-                os.startfile(self.last_receipt_path)
-            except Exception as e:
-                messagebox.showerror("Error", f"No se pudo abrir el archivo: {e}")
-        else:
-            # Intentar abrir el por defecto si existe
-            default_path = os.path.abspath('recibo_temp.xlsx')
-            if os.path.exists(default_path):
                 try:
                     os.startfile(default_path)
                 except Exception as e:

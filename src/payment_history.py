@@ -2,7 +2,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from .database import get_db_manager
 from datetime import datetime
-from .receipt_generator import ReceiptGenerator
 from .excel_manager import ExcelManager
 import os
 
@@ -14,7 +13,7 @@ class PaymentHistoryWindow:
         
         self.user_id = user_id
         self.db = get_db_manager()
-        self.receipt_gen = ReceiptGenerator()
+        # self.receipt_gen = ReceiptGenerator() # Eliminado
         
         self.setup_ui()
         self.load_history()
@@ -113,7 +112,6 @@ class PaymentHistoryWindow:
         
         try:
             # Reconstruir datos para ExcelManager
-            # Necesitamos fecha, total, nombre usuario, etc.
             
             # Obtener datos del pago
             conn = self.db.get_connection()
@@ -133,19 +131,17 @@ class PaymentHistoryWindow:
                 return
 
             # Obtener detalles
-            detalles = self.db.obtener_detalle_pago(pago_id)
+            detalles_rows = self.db.obtener_detalle_pago(pago_id)
+            # La funcion retorna dict {'pago': ..., 'detalles': [list of dicts]}
+            detalles = detalles_rows.get('detalles', [])
             
             # Construir dict
             conceptos_fmt = []
             for d in detalles:
                 desc = d['concepto']
-                # Reconstruir logica de nombre de mes si se desea, 
-                # pero el detalle ya deberia tener info suficiente o el concepto guardado.
-                # Si el concepto guardado es "Mensualidad", podríamos agregar el mes si existe.
                 if d['mes']:
                      months = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
                      if 'Mensualidad' in desc and str(d['mes']) not in desc:
-                         # Solo agregar si no está ya (evitar duplicados si se guardó completo)
                          if 1 <= int(d['mes']) <= 12:
                              desc += f" {months[int(d['mes'])]}"
                 
@@ -155,13 +151,13 @@ class PaymentHistoryWindow:
                 })
             
             datos_recibo = {
-                'folio': pago_id,
+                'folio': str(pago_id).zfill(6),
                 'fecha': datetime.strptime(pago['fecha_pago'], '%Y-%m-%d %H:%M:%S').strftime("%d/%m/%Y"),
-                'id_usuario': usuario['id'],
+                'id_usuario': str(usuario['id']),
                 'nombre': usuario['nombre'],
                 'direccion': usuario['direccion'],
-                'tomas': usuario.get('tomas', 1),
-                'total': pago['total'],
+                'tomas': str(usuario.get('tomas', 1)),
+                'total': float(pago['total']),
                 'conceptos': conceptos_fmt
             }
 
